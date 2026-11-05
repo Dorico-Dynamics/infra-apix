@@ -224,7 +224,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.27'
       
       - name: Install apix CLI
         run: go install github.com/Infra-Forge/apix/cmd/apix@latest
@@ -242,7 +242,7 @@ Add to `.gitlab-ci.yml`:
 
 ```yaml
 test:
-  image: golang:1.25
+  image: golang:1.27
   script:
     - go install github.com/Infra-Forge/apix/cmd/apix@latest
     - go test ./...
