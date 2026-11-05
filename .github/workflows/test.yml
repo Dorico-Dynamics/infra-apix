@@ -114,3 +114,21 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
+  # The org ruleset requires a status check named "CI". It passes only when
+  # every gating job succeeded; a failed, cancelled or skipped job fails it.
+  # SonarQube is advisory (continue-on-error), so it is not gated here.
+  ci:
+    name: CI
+    if: always()
+    needs: [test, coverage, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require test, coverage and build to succeed
+        env:
+          TEST: ${{ needs.test.result }}
+          COVERAGE: ${{ needs.coverage.result }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          echo "test=${TEST} coverage=${COVERAGE} build=${BUILD}"
+          [ "${TEST}" = success ] && [ "${COVERAGE}" = success ] && [ "${BUILD}" = success ]
+
