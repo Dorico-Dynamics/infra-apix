@@ -61,18 +61,78 @@ func TestSchemaRefFromTypeMapError(t *testing.T) {
 	}
 }
 
-func TestWrapNullableAndEnsureSchema(t *testing.T) {
-	s := openapi3.NewStringSchema()
-	ref := schemaRef(s)
-	wrapped := wrapNullable(ref)
-	if wrapped.Value == nil || !wrapped.Value.Nullable {
-		t.Fatalf("expected nullable clone")
-	}
+func TestWrapNullable(t *testing.T) {
+	t.Run("inline schema is cloned", func(t *testing.T) {
+		s := openapi3.NewStringSchema()
+		wrapped := wrapNullable(schemaRef(s))
+		if wrapped.Value == nil || !wrapped.Value.Nullable {
+			t.Fatalf("expected nullable clone")
+		}
+		if s.Nullable {
+			t.Fatalf("original schema was edited")
+		}
+	})
 
-	var sr *openapi3.SchemaRef
-	result := ensureSchema(sr)
-	if result == nil || result.Type == nil || len(*result.Type) != 0 {
-		// ensureSchema returns object schema without type; focus on non-nil
+	t.Run("component reference is wrapped", func(t *testing.T) {
+		component := openapi3.NewObjectSchema()
+		ref := componentRef("pkg_Money", component)
+		wrapped := wrapNullable(ref)
+		if wrapped.Ref != "" || wrapped.Value == nil || !wrapped.Value.Nullable {
+			t.Fatalf("expected a nullable wrapper, got %+v", wrapped)
+		}
+		if len(wrapped.Value.AllOf) != 1 || wrapped.Value.AllOf[0] != ref {
+			t.Fatalf("expected allOf holding the reference, got %+v", wrapped.Value.AllOf)
+		}
+		if component.Nullable {
+			t.Fatalf("component was edited")
+		}
+	})
+
+	t.Run("nil", func(t *testing.T) {
+		if wrapNullable(nil) != nil {
+			t.Fatalf("expected nil")
+		}
+	})
+}
+
+func TestWithFieldMetadata(t *testing.T) {
+	component := openapi3.NewObjectSchema()
+	cases := []struct {
+		name        string
+		ref         *openapi3.SchemaRef
+		description string
+		example     any
+		wantWrapped bool
+	}{
+		{"no metadata keeps the schema", schemaRef(openapi3.NewStringSchema()), "", nil, false},
+		{"inline schema takes the metadata", schemaRef(openapi3.NewStringSchema()), "Name", "Ada", false},
+		{"component reference is wrapped", componentRef("pkg_Money", component), "Budget", nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := withFieldMetadata(tc.ref, tc.description, tc.example)
+			if !tc.wantWrapped {
+				if got != tc.ref {
+					t.Fatalf("expected the same schema ref back")
+				}
+				if got.Value.Description != tc.description || got.Value.Example != tc.example {
+					t.Fatalf("metadata = (%q, %v), want (%q, %v)", got.Value.Description, got.Value.Example, tc.description, tc.example)
+				}
+				return
+			}
+			if got.Ref != "" || len(got.Value.AllOf) != 1 || got.Value.AllOf[0] != tc.ref {
+				t.Fatalf("expected an allOf wrapper holding the reference, got %+v", got)
+			}
+			if got.Value.Description != tc.description {
+				t.Fatalf("description = %q, want %q", got.Value.Description, tc.description)
+			}
+		})
+	}
+	if component.Description != "" {
+		t.Fatalf("component was edited: %q", component.Description)
+	}
+	if withFieldMetadata(nil, "x", nil) != nil {
+		t.Fatalf("expected nil for a nil ref")
 	}
 }
 

@@ -297,16 +297,12 @@ func (b *Builder) schemaRefFromType(t reflect.Type) (*openapi3.SchemaRef, error)
 
 func (b *Builder) schemaRefNonNull(t reflect.Type) (*openapi3.SchemaRef, error) {
 	if cached, ok := b.schemaCache[t]; ok {
-		// If this type has a component name, return a reference-only SchemaRef
-		// to avoid circular references in the OpenAPI document structure
-		name := componentName(t)
-		if name != "" {
-			return &openapi3.SchemaRef{
-				Ref: "#/components/schemas/" + name,
-			}, nil
+		if name := componentName(t); name != "" {
+			return componentRef(name, cached.Value), nil
 		}
-		// For anonymous types, return the cached schema directly
-		return cached, nil
+		// Each use gets its own copy, so field metadata applied to one use
+		// does not reach the others.
+		return &openapi3.SchemaRef{Value: copySchema(cached.Value)}, nil
 	}
 
 	switch t.Kind() {
@@ -399,28 +395,16 @@ func (b *Builder) buildStructSchema(t reflect.Type) (*openapi3.SchemaRef, error)
 	name := componentName(t)
 
 	if name != "" {
-		if ref, ok := b.schemaCache[t]; ok {
-			return ref, nil
-		}
-
-		// Create the schema object
 		schema := openapi3.NewObjectSchema()
 		schema.Properties = make(map[string]*openapi3.SchemaRef)
 		schema.Required = []string{}
-		schema.AllOf = nil
 
-		// Create a schema ref with the actual value
-		schemaRef := &openapi3.SchemaRef{Value: schema}
+		// Register the component before populating it, so a field that leads
+		// back to this type resolves to a reference instead of recursing.
+		component := &openapi3.SchemaRef{Value: schema}
+		b.doc.Components.Schemas[name] = component
+		b.schemaCache[t] = component
 
-		// Add to components
-		b.doc.Components.Schemas[name] = schemaRef
-
-		// Cache the SAME schemaRef object (not a reference-only version)
-		// This ensures that when other schemas reference this type, they get
-		// the actual schema object, not just a $ref string
-		b.schemaCache[t] = schemaRef
-
-		// Populate the schema fields
 		if err := b.populateStructSchema(schema, t); err != nil {
 			return nil, err
 		}
@@ -433,7 +417,7 @@ func (b *Builder) buildStructSchema(t reflect.Type) (*openapi3.SchemaRef, error)
 		// Log schema generation
 		logging.GetLogger().SchemaGenerated(name)
 
-		return schemaRef, nil
+		return componentRef(name, schema), nil
 	}
 
 	// anonymous/inline struct
@@ -443,9 +427,8 @@ func (b *Builder) buildStructSchema(t reflect.Type) (*openapi3.SchemaRef, error)
 	if err := b.populateStructSchema(schema, t); err != nil {
 		return nil, err
 	}
-	ref := &openapi3.SchemaRef{Value: schema}
-	b.schemaCache[t] = ref
-	return ref, nil
+	b.schemaCache[t] = &openapi3.SchemaRef{Value: schema}
+	return &openapi3.SchemaRef{Value: copySchema(schema)}, nil
 }
 
 func (b *Builder) populateStructSchema(schema *openapi3.Schema, t reflect.Type) error {
@@ -491,18 +474,11 @@ func (b *Builder) populateStructSchema(schema *openapi3.Schema, t reflect.Type) 
 			}
 		}
 
-		schema.Properties[jsonName] = childRef
-
-		// Apply field-level metadata from struct tags
-		childSchema := ensureSchema(childRef)
-
-		if fieldDescription := field.Tag.Get("description"); fieldDescription != "" {
-			childSchema.Description = fieldDescription
-		}
-
+		var example any
 		if fieldExample := field.Tag.Get("example"); fieldExample != "" && !isFile {
-			childSchema.Example = parseExampleValue(fieldExample, field.Type)
+			example = parseExampleValue(fieldExample, field.Type)
 		}
+		schema.Properties[jsonName] = withFieldMetadata(childRef, field.Tag.Get("description"), example)
 
 		if isFieldRequired(field) {
 			schema.Required = append(schema.Required, jsonName)
@@ -674,11 +650,30 @@ func schemaRef(schema *openapi3.Schema) *openapi3.SchemaRef {
 	return &openapi3.SchemaRef{Value: schema}
 }
 
+const componentRefPrefix = "#/components/schemas/"
+
+// componentRef refers to a component schema. Value carries the resolved schema
+// so the in-memory document validates and can be walked without a loader;
+// serialization emits only the $ref.
+func componentRef(name string, schema *openapi3.Schema) *openapi3.SchemaRef {
+	return &openapi3.SchemaRef{Ref: componentRefPrefix + name, Value: schema}
+}
+
+// copySchema returns a shallow copy, so per-use edits to top-level fields
+// (description, example, nullable) leave the original untouched.
+func copySchema(s *openapi3.Schema) *openapi3.Schema {
+	if s == nil {
+		return nil
+	}
+	c := *s
+	return &c
+}
+
 func wrapNullable(ref *openapi3.SchemaRef) *openapi3.SchemaRef {
 	if ref == nil {
 		return nil
 	}
-	if ref.Ref != "" && ref.Value == nil {
+	if ref.Ref != "" {
 		return &openapi3.SchemaRef{
 			Value: &openapi3.Schema{
 				Nullable: true,
@@ -689,19 +684,31 @@ func wrapNullable(ref *openapi3.SchemaRef) *openapi3.SchemaRef {
 	if ref.Value == nil {
 		return ref
 	}
-	clone := *ref.Value
+	clone := copySchema(ref.Value)
 	clone.Nullable = true
-	return &openapi3.SchemaRef{Value: &clone}
+	return &openapi3.SchemaRef{Value: clone}
 }
 
-func ensureSchema(ref *openapi3.SchemaRef) *openapi3.Schema {
-	if ref == nil {
-		ref = &openapi3.SchemaRef{Value: openapi3.NewObjectSchema()}
+// withFieldMetadata applies a struct field's description and example to the
+// field's schema. A reference to a component is wrapped in allOf, so one
+// field's metadata never edits the component that other fields share.
+func withFieldMetadata(ref *openapi3.SchemaRef, description string, example any) *openapi3.SchemaRef {
+	if ref == nil || (description == "" && example == nil) {
+		return ref
+	}
+	if ref.Ref != "" {
+		ref = &openapi3.SchemaRef{Value: &openapi3.Schema{AllOf: []*openapi3.SchemaRef{ref}}}
 	}
 	if ref.Value == nil {
-		ref.Value = openapi3.NewObjectSchema()
+		return ref
 	}
-	return ref.Value
+	if description != "" {
+		ref.Value.Description = description
+	}
+	if example != nil {
+		ref.Value.Example = example
+	}
+	return ref
 }
 
 func componentName(t reflect.Type) string {
