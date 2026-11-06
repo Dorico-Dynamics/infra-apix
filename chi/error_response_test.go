@@ -1,8 +1,11 @@
 package chi_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,8 +17,8 @@ import (
 )
 
 // TestChiAdapterErrorResponsesKeepInternalsPrivate: a decode failure is told in
-// JSON terms, never by Go type or package names, and an error without an HTTP
-// status becomes a generic 500, in both response formats.
+// JSON terms, never by Go type or package names, and an error without a 4xx
+// or 5xx status becomes a generic 500, in both response formats.
 func TestChiAdapterErrorResponsesKeepInternalsPrivate(t *testing.T) {
 	internal := errors.New(`pq: relation "items" does not exist`)
 	cases := []struct {
@@ -53,6 +56,26 @@ func TestChiAdapterErrorResponsesKeepInternalsPrivate(t *testing.T) {
 			status: http.StatusInternalServerError, contentType: "application/problem+json",
 			response: `{"status":500,"title":"Internal Server Error","type":"about:blank"}`,
 		},
+		{
+			name: "error with status 0", body: `{"name": "a"}`, handlerErr: apix.WithStatus(0, "custom message"),
+			status: http.StatusInternalServerError, contentType: "text/plain; charset=utf-8",
+			response: "Internal Server Error",
+		},
+		{
+			name: "problem without status", problem: true, body: `{"name": "a"}`, handlerErr: &apix.ProblemDetails{Title: "Missing status"},
+			status: http.StatusInternalServerError, contentType: "application/problem+json",
+			response: `{"status":500,"title":"Internal Server Error","type":"about:blank"}`,
+		},
+		{
+			name: "error with success status", body: `{"name": "a"}`, handlerErr: apix.WithStatus(http.StatusOK, "custom message"),
+			status: http.StatusInternalServerError, contentType: "text/plain; charset=utf-8",
+			response: "Internal Server Error",
+		},
+		{
+			name: "error with not-modified status as problem", problem: true, body: `{"name": "a"}`, handlerErr: apix.WithStatus(http.StatusNotModified, "custom message"),
+			status: http.StatusInternalServerError, contentType: "application/problem+json",
+			response: `{"status":500,"title":"Internal Server Error","type":"about:blank"}`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -76,5 +99,38 @@ func TestChiAdapterErrorResponsesKeepInternalsPrivate(t *testing.T) {
 				t.Errorf("body = %s, want %s", got, tc.response)
 			}
 		})
+	}
+}
+
+// TestChiAdapterLogsTheRequestOfAnErrorItAnswersWith500: the error line
+// names the request's method, path, X-Request-ID and X-Correlation-ID.
+func TestChiAdapterLogsTheRequestOfAnErrorItAnswersWith500(t *testing.T) {
+	var logs bytes.Buffer
+	apix.SetLogger(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelError})))
+	t.Cleanup(func() { apix.SetLogger(nil) })
+
+	apix.ResetRegistry()
+	r := chi.NewRouter()
+	adapter := chiadapter.New(r)
+	chiadapter.Post(adapter, "/items", func(ctx context.Context, req *createItemRequest) (createItemResponse, error) {
+		return createItemResponse{}, errors.New(`pq: relation "items" does not exist`)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/items", strings.NewReader(`{"name": "a"}`))
+	req.Header.Set("X-Request-ID", "req-1")
+	req.Header.Set("X-Correlation-ID", "corr-1")
+	r.ServeHTTP(httptest.NewRecorder(), req)
+
+	var line map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &line); err != nil {
+		t.Fatalf("want one JSON line, got %q: %v", logs.String(), err)
+	}
+	for key, want := range map[string]any{
+		"msg": "error answered with a generic 500", "reason": "no HTTP status", "method": "POST", "path": "/items",
+		"request_id": "req-1", "correlation_id": "corr-1", "error": `pq: relation "items" does not exist`,
+	} {
+		if line[key] != want {
+			t.Errorf("%s = %v, want %v", key, line[key], want)
+		}
 	}
 }

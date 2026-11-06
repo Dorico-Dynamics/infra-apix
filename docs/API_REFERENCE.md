@@ -11,6 +11,7 @@ Complete API documentation for the `apix` library.
 - [OpenAPI Builder](#openapi-builder)
 - [Runtime Server](#runtime-server)
 - [CLI Commands](#cli-commands)
+- [Logging](#logging)
 
 ## Core Types
 
@@ -286,7 +287,9 @@ apix.WithSuccessStatus(http.StatusAccepted) // 202
 
 ### WithSuccessHeaders
 
-Adds custom headers to the success response.
+Documents headers on the response for `status`, such as the `Location` a
+create handler sets. apix documents no response header by default. `Build`
+fails if `status` is not one of the route's responses.
 
 ```go
 func WithSuccessHeaders(status int, headers ...HeaderRef) RouteOption
@@ -299,7 +302,6 @@ apix.WithSuccessHeaders(http.StatusCreated, apix.HeaderRef{
     Description: "URI of the created resource",
     SchemaType:  "string",
     Required:    true,
-    Example:     "/api/users/123",
 })
 ```
 
@@ -721,6 +723,19 @@ Returns a copy of registered routes sorted by path+method for deterministic outp
 ```go
 func Snapshot() []*RouteRef
 ```
+
+## Logging
+
+### SetLogger
+
+Sends apix's logs to `logger`. `nil` restores the defaults.
+
+```go
+func SetLogger(logger *slog.Logger)
+```
+
+- **Errors answered with a generic 500.** These are errors without an HTTP status, or with a status outside 4xx and 5xx. They are logged at Error level, with the request's context, under the message `error answered with a generic 500`. The attributes are `reason`, `status` (for an invalid status), `method`, `path`, `request_id` (from `X-Request-ID`), `correlation_id` (from `X-Correlation-ID`) and `error`. The two ids are left out when the header is not set. Without a logger, these lines go to `slog.Default()`. The Echo adapter leaves an error without an HTTP status to Echo's `HTTPErrorHandler`, which answers and logs it. It logs only an error whose status is outside 4xx and 5xx. `ProblemDetailsErrorHandler` without a fallback answers any error itself and logs it like the other adapters.
+- **Library events.** Route registration, schema generation and document builds are logged at Info and Debug level, and only to a logger passed to `SetLogger`. Set it before registering routes.
 
 ## Error Types
 

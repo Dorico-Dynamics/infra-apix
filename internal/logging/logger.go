@@ -1,7 +1,6 @@
 package logging
 
 import (
-	"context"
 	"log/slog"
 	"os"
 	"sync"
@@ -14,7 +13,9 @@ type Logger struct {
 
 var (
 	globalLogger *Logger
-	mu           sync.RWMutex
+	// configured is the logger passed to apix.SetLogger, nil until then.
+	configured *slog.Logger
+	mu         sync.RWMutex
 )
 
 func init() {
@@ -67,19 +68,30 @@ func GetLogger() *Logger {
 	return globalLogger
 }
 
-// WithContext returns a logger with context-derived fields.
-// Currently extracts common context keys like request ID, trace ID, etc.
-// TODO: Define standard context keys for request_id, user_id, trace_id, span_id
-func (l *Logger) WithContext(ctx context.Context) *Logger {
-	// For now, this is a placeholder that returns the logger as-is.
-	// In the future, extract values from context using agreed-upon keys:
-	//   - requestID := ctx.Value("request_id")
-	//   - userID := ctx.Value("user_id")
-	//   - traceID := ctx.Value("trace_id")
-	//   - spanID := ctx.Value("span_id")
-	// Then: return l.WithFields("request_id", requestID, "user_id", userID, ...)
-	_ = ctx // Suppress unused parameter warning
-	return l
+// Configure installs the logger passed to apix.SetLogger. Library events go to
+// it instead of being dropped, and so do the errors the adapters answer with a
+// generic 500. nil restores both defaults.
+func Configure(logger *slog.Logger) {
+	mu.Lock()
+	defer mu.Unlock()
+	configured = logger
+	if logger == nil {
+		globalLogger = NewNopLogger()
+		return
+	}
+	globalLogger = &Logger{Logger: logger}
+}
+
+// ErrorLogger returns the logger for the errors the adapters answer with a
+// generic 500: the one passed to apix.SetLogger, or else slog.Default(), so
+// those errors are printed even when no logger was set.
+func ErrorLogger() *slog.Logger {
+	mu.RLock()
+	defer mu.RUnlock()
+	if configured != nil {
+		return configured
+	}
+	return slog.Default()
 }
 
 // WithFields returns a logger with the given fields

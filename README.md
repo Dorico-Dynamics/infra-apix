@@ -15,7 +15,7 @@ Current Go OpenAPI tooling (swaggo, spec-first generators) relies on comments or
 - **Code-first**: Derive routes, schemas, and security from Go handlers
 - **Type-safe**: Generic handlers `HandlerFunc[TReq, TResp]` with compile-time safety
 - **Deterministic**: Sorted paths/components for git-friendly diffs
-- **DX defaults**: Auto-inject 201 Location headers, 401/403 on secured routes
+- **DX defaults**: 201 for POST, 204 for DELETE, 401/403 on secured routes
 - **Runtime + CLI**: Serve `/openapi.json` live or generate static specs with `apix generate`
 - **Guardrails**: DO-NOT-EDIT headers, CI drift checks, spec-guard command
 
@@ -294,13 +294,19 @@ func deleteItem(ctx context.Context, _ *apix.NoBody) (apix.NoBody, error)
 
 `apix` applies sensible defaults aligned with REST best practices:
 
-| Method | Default Status | Auto-injected Headers | Auto-injected Responses |
-|--------|----------------|----------------------|------------------------|
-| POST   | 201 Created    | Location (URI)       | 401, 403 (if secured)  |
-| GET    | 200 OK         | -                    | 401, 403 (if secured)  |
-| PUT    | 200 OK         | -                    | 401, 403 (if secured)  |
-| PATCH  | 200 OK         | -                    | 401, 403 (if secured)  |
-| DELETE | 204 No Content | -                    | 401, 403 (if secured)  |
+| Method | Default Status | Request Body Documented | Auto-injected Responses |
+|--------|----------------|-------------------------|------------------------|
+| POST   | 201 Created    | Yes                     | 401, 403 (if secured)  |
+| GET    | 200 OK         | No                      | 401, 403 (if secured)  |
+| PUT    | 200 OK         | Yes                     | 401, 403 (if secured)  |
+| PATCH  | 200 OK         | Yes                     | 401, 403 (if secured)  |
+| DELETE | 204 No Content | No                      | 401, 403 (if secured)  |
+
+A request type on GET or DELETE holds query or path values, so it is not
+documented as a request body. Response headers such as `Location` are
+documented only when declared, for example with `apix.WithSuccessHeaders`;
+`Build` fails if that option names a status that is not one of the route's
+responses.
 
 ## Struct Tags
 
@@ -496,6 +502,31 @@ handler, err := runtime.NewHandler(runtime.Config{
         b.Info.Description = "Public API"
     },
 })
+```
+
+## Logging
+
+An adapter answers an error without a 4xx or 5xx status with a generic 500 and
+logs the error at Error level, with the request's context. With a text
+handler, the line reads:
+
+```
+level=ERROR msg="error answered with a generic 500" reason="no HTTP status" method=POST path=/v1/items request_id=req-1 correlation_id=corr-1 error="pq: relation \"items\" does not exist"
+```
+
+`request_id` and `correlation_id` come from the `X-Request-ID` and
+`X-Correlation-ID` request headers, and are left out when a header is not set.
+The Echo adapter leaves an error without a status to Echo's error handler, so it
+logs only an error whose status is outside 4xx and 5xx.
+`echoadapter.ProblemDetailsErrorHandler(nil)`, with no fallback, answers any
+error itself and logs it like the other adapters.
+
+These lines go to `slog.Default()` unless you pass your own logger. That logger
+also receives route registration, schema generation and document builds, at
+Info and Debug level:
+
+```go
+apix.SetLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 ```
 
 ## Architecture
