@@ -188,7 +188,7 @@ func defaultEncoder(ctx context.Context, c *gin.Context, status int, payload any
 func defaultErrorHandler(ctx context.Context, c *gin.Context, err error, useProblemDetails bool) {
 	// An error without a 4xx or 5xx status is logged, and the client gets a
 	// generic 500.
-	status, err := errorhandler.Resolve(c.Request.Method, c.Request.URL.Path, err)
+	status, err := errorhandler.Resolve(ctx, errorhandler.RequestOf(c.Request), err)
 
 	// If Problem Details is enabled, serialize as RFC 9457
 	if useProblemDetails {

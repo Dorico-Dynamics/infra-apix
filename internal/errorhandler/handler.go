@@ -5,18 +5,45 @@
 package errorhandler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	apix "github.com/Infra-Forge/infra-apix"
+	"github.com/Infra-Forge/infra-apix/internal/logging"
 )
+
+// The request headers that the error log line carries as request_id and
+// correlation_id.
+const (
+	RequestIDHeader     = "X-Request-ID"
+	CorrelationIDHeader = "X-Correlation-ID"
+)
+
+// Request is what the error log line says about the request.
+type Request struct {
+	Method        string
+	Path          string
+	RequestID     string
+	CorrelationID string
+}
+
+// RequestOf describes r for the error log line.
+func RequestOf(r *http.Request) Request {
+	return Request{
+		Method:        r.Method,
+		Path:          r.URL.Path,
+		RequestID:     r.Header.Get(RequestIDHeader),
+		CorrelationID: r.Header.Get(CorrelationIDHeader),
+	}
+}
 
 // HandleError writes err as the response for the net/http-based adapters (chi
 // and mux). With useProblemDetails, the body is RFC 9457 application/problem+json.
 func HandleError(w http.ResponseWriter, r *http.Request, err error, useProblemDetails bool) {
-	status, err := Resolve(r.Method, r.URL.Path, err)
+	status, err := Resolve(r.Context(), RequestOf(r), err)
 
 	if useProblemDetails {
 		// Marshal before writing headers so a failure can still fall back to text.
@@ -32,19 +59,19 @@ func HandleError(w http.ResponseWriter, r *http.Request, err error, useProblemDe
 }
 
 // Resolve returns the status and the error to send for err. err is sent as is
-// only when it carries a 4xx or 5xx status. Otherwise Resolve logs it and
-// returns InternalError: net/http panics on a status below 100 or above 999,
-// and any other status would present the error as an informational, success
-// or redirect response.
-func Resolve(method, path string, err error) (int, error) {
+// only when it carries a 4xx or 5xx status. Otherwise Resolve logs it for req
+// and returns InternalError: net/http panics on a status below 100 or above
+// 999, and any other status would present the error as an informational,
+// success or redirect response.
+func Resolve(ctx context.Context, req Request, err error) (int, error) {
 	var statusCoder apix.StatusCoder
 	if !errors.As(err, &statusCoder) {
-		LogUnhandled(method, path, err)
+		logReplaced(ctx, req, err, slog.String("reason", "no HTTP status"))
 		return http.StatusInternalServerError, InternalError()
 	}
 	status := statusCoder.HTTPStatus()
 	if status < 400 || status > 599 {
-		log.Printf("error with HTTP status %d, not 4xx or 5xx, in %q %q: %v", status, method, path, err)
+		logReplaced(ctx, req, err, slog.String("reason", "HTTP status outside 4xx and 5xx"), slog.Int("status", status))
 		return http.StatusInternalServerError, InternalError()
 	}
 	return status, err
@@ -59,10 +86,18 @@ func InternalError() *apix.ProblemDetails {
 	}
 }
 
-// LogUnhandled records an error that reached an adapter without an HTTP status.
-// The client receives InternalError instead. Method and path come from the
-// request and are quoted, so an encoded line break (%0A) cannot forge a log
-// line.
-func LogUnhandled(method, path string, err error) {
-	log.Printf("unrecognized error in %q %q: %v", method, path, err)
+// logReplaced logs, at Error level and with the request's context, an error
+// that the client receives as InternalError. It goes to the logger passed to
+// apix.SetLogger, or else to slog.Default(). slog quotes attribute values, so
+// a line break decoded from the path (%0A) cannot forge a log line.
+func logReplaced(ctx context.Context, req Request, err error, attrs ...slog.Attr) {
+	attrs = append(attrs, slog.String("method", req.Method), slog.String("path", req.Path))
+	if req.RequestID != "" {
+		attrs = append(attrs, slog.String("request_id", req.RequestID))
+	}
+	if req.CorrelationID != "" {
+		attrs = append(attrs, slog.String("correlation_id", req.CorrelationID))
+	}
+	attrs = append(attrs, slog.Any("error", err))
+	logging.ErrorLogger().LogAttrs(ctx, slog.LevelError, "error answered with a generic 500", attrs...)
 }

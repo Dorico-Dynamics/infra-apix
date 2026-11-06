@@ -2,6 +2,7 @@ package logging
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"strings"
@@ -152,5 +153,31 @@ func TestErrorOccurred(t *testing.T) {
 	}
 	if !strings.Contains(output, "test error") {
 		t.Errorf("expected output to contain 'test error', got: %s", output)
+	}
+}
+
+// TestConfigure: the logger passed to apix.SetLogger receives library events
+// and adapter errors. nil drops library events again and sends adapter errors
+// to slog.Default().
+func TestConfigure(t *testing.T) {
+	t.Cleanup(func() { Configure(nil) })
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	Configure(logger)
+	if ErrorLogger() != logger {
+		t.Error("ErrorLogger must return the configured logger")
+	}
+	GetLogger().SpecBuilt(3, 2)
+	if !strings.Contains(buf.String(), `msg="OpenAPI spec built" routes=3 schemas=2`) {
+		t.Errorf("library event missing, got %q", buf.String())
+	}
+
+	Configure(nil)
+	if ErrorLogger() != slog.Default() {
+		t.Error("without a configured logger, ErrorLogger must return slog.Default()")
+	}
+	if GetLogger().Enabled(context.Background(), slog.LevelError) {
+		t.Error("without a configured logger, library events must be dropped")
 	}
 }

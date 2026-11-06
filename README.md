@@ -494,6 +494,31 @@ handler, err := runtime.NewHandler(runtime.Config{
 })
 ```
 
+## Logging
+
+An adapter answers an error without a 4xx or 5xx status with a generic 500 and
+logs the error at Error level, with the request's context. With a text
+handler, the line reads:
+
+```
+level=ERROR msg="error answered with a generic 500" reason="no HTTP status" method=POST path=/v1/items request_id=req-1 correlation_id=corr-1 error="pq: relation \"items\" does not exist"
+```
+
+`request_id` and `correlation_id` come from the `X-Request-ID` and
+`X-Correlation-ID` request headers, and are left out when a header is not set.
+The Echo adapter leaves an error without a status to Echo's error handler, so it
+logs only an error whose status is outside 4xx and 5xx.
+`echoadapter.ProblemDetailsErrorHandler(nil)`, with no fallback, answers any
+error itself and logs it like the other adapters.
+
+These lines go to `slog.Default()` unless you pass your own logger. That logger
+also receives route registration, schema generation and document builds, at
+Info and Debug level:
+
+```go
+apix.SetLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+```
+
 ## Architecture
 
 ```

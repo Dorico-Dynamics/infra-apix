@@ -1,9 +1,12 @@
 package fiber_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,5 +100,40 @@ func TestFiberAdapterErrorResponsesKeepInternalsPrivate(t *testing.T) {
 				t.Errorf("body = %s, want %s", got, tc.response)
 			}
 		})
+	}
+}
+
+// TestFiberAdapterLogsTheRequestOfAnErrorItAnswersWith500: the error line
+// names the request's method, path, X-Request-ID and X-Correlation-ID.
+func TestFiberAdapterLogsTheRequestOfAnErrorItAnswersWith500(t *testing.T) {
+	var logs bytes.Buffer
+	apix.SetLogger(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelError})))
+	t.Cleanup(func() { apix.SetLogger(nil) })
+
+	apix.ResetRegistry()
+	app := fiber.New()
+	adapter := fiberadapter.New(app)
+	fiberadapter.Post(adapter, "/items", func(ctx context.Context, req *createItemRequest) (createItemResponse, error) {
+		return createItemResponse{}, errors.New(`pq: relation "items" does not exist`)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/items", strings.NewReader(`{"name": "a"}`))
+	req.Header.Set("X-Request-ID", "req-1")
+	req.Header.Set("X-Correlation-ID", "corr-1")
+	if _, err := app.Test(req); err != nil {
+		t.Fatalf("test request failed: %v", err)
+	}
+
+	var line map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &line); err != nil {
+		t.Fatalf("want one JSON line, got %q: %v", logs.String(), err)
+	}
+	for key, want := range map[string]any{
+		"msg": "error answered with a generic 500", "reason": "no HTTP status", "method": "POST", "path": "/items",
+		"request_id": "req-1", "correlation_id": "corr-1", "error": `pq: relation "items" does not exist`,
+	} {
+		if line[key] != want {
+			t.Errorf("%s = %v, want %v", key, line[key], want)
+		}
 	}
 }
