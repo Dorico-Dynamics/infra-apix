@@ -92,8 +92,27 @@ func TestHandleErrorWithGenericErrorInProblemMode(t *testing.T) {
 	if !reflect.DeepEqual(problem, want) {
 		t.Errorf("problem = %v, want %v", problem, want)
 	}
-	if !strings.Contains(logs.String(), `unrecognized error in GET /test: pq: relation "ledger" does not exist`) {
+	if !strings.Contains(logs.String(), `unrecognized error in "GET" "/test": pq: relation "ledger" does not exist`) {
 		t.Errorf("the original error must be logged server-side, got %q", logs.String())
+	}
+}
+
+// TestLogUnhandledKeepsAnEncodedLineBreakInOneLine: the path is decoded, so
+// %0A arrives as a line break and would start a forged log line if written
+// as is.
+func TestLogUnhandledKeepsAnEncodedLineBreakInOneLine(t *testing.T) {
+	var logs bytes.Buffer
+	prev, flags := log.Writer(), log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	t.Cleanup(func() { log.SetOutput(prev); log.SetFlags(flags) })
+
+	r := httptest.NewRequest("GET", "/ledger%0Aunrecognized%20error%20in%20GET%20/admin", nil)
+	HandleError(httptest.NewRecorder(), r, errors.New("boom"), false)
+
+	want := `unrecognized error in "GET" "/ledger\nunrecognized error in GET /admin": boom` + "\n"
+	if logs.String() != want {
+		t.Errorf("log = %q, want %q", logs.String(), want)
 	}
 }
 

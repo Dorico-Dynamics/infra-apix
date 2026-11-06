@@ -46,7 +46,9 @@ func InternalError() *apix.ProblemDetails {
 }
 
 // LogUnhandled records an error that reached an adapter without an HTTP status.
-// The client receives InternalError instead.
+// The client receives InternalError instead. Method and path come from the
+// request and are quoted, so an encoded line break (%0A) cannot forge a log
+// line.
 func LogUnhandled(method, path string, err error) {
-	log.Printf("unrecognized error in %s %s: %v", method, path, err)
+	log.Printf("unrecognized error in %q %q: %v", method, path, err)
 }
