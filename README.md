@@ -471,7 +471,7 @@ handler, err := runtime.NewHandler(runtime.Config{
     Servers: []string{"https://api.example.com", "https://staging.example.com"},
 
     // Validation
-    Validate: true, // Validate spec before serving (default: true)
+    Validate: true, // Validate the spec on every build before serving (default: false)
 
     // Caching
     CacheTTL: 5 * time.Minute, // Cache spec for 5 minutes (0 = no cache)

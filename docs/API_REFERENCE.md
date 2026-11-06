@@ -569,19 +569,18 @@ type Config struct {
     Format string
 
     // Document metadata
-    Title       string
-    Version     string
-    Description string
-    Servers     []string
+    Title   string
+    Version string
+    Servers []string
 
     // Validation
-    Validate bool // Validate spec before serving (default: true)
+    Validate bool // Validate the spec on every build before serving (default: false)
 
     // Caching
     CacheTTL time.Duration // Cache spec for duration (0 = no cache)
 
     // Paths
-    SpecPath      string // Default: "/openapi.json"
+    SpecPath      string // Default: "/openapi.json", or "/openapi.yaml" for YAML
     SwaggerUIPath string // Default: "/swagger"
 
     // Swagger UI
