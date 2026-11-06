@@ -177,7 +177,7 @@ func defaultErrorTransformer(c echo.Context, err error, useProblemDetails bool) 
 		return err
 	}
 	// A status outside 4xx and 5xx is logged and replaced by a generic 500.
-	status, err := errorhandler.Resolve(c.Request().Method, c.Request().URL.Path, err)
+	status, err := errorhandler.Resolve(c.Request().Context(), errorhandler.RequestOf(c.Request()), err)
 	// If Problem Details is enabled, wrap with ProblemDetails
 	// Echo will handle the serialization via custom error handler
 	if useProblemDetails {
@@ -239,7 +239,7 @@ func ProblemDetailsErrorHandler(fallback echo.HTTPErrorHandler) echo.HTTPErrorHa
 		if errors.As(err, &problem) {
 			// A problem without a 4xx or 5xx status is logged and replaced by
 			// a generic 500; WriteHeader panics on a status such as 0.
-			status, sent := errorhandler.Resolve(c.Request().Method, c.Request().URL.Path, problem)
+			status, sent := errorhandler.Resolve(c.Request().Context(), errorhandler.RequestOf(c.Request()), problem)
 			// Serialize as RFC 9457
 			c.Response().Header().Set("Content-Type", "application/problem+json")
 			c.Response().WriteHeader(status)

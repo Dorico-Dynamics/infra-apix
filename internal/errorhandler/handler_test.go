@@ -2,10 +2,12 @@ package errorhandler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -13,6 +15,7 @@ import (
 	"testing"
 
 	apix "github.com/Infra-Forge/infra-apix"
+	"github.com/Infra-Forge/infra-apix/internal/logging"
 )
 
 func TestHandleErrorWithStatusCoder(t *testing.T) {
@@ -93,15 +96,14 @@ func TestHandleErrorWithGenericErrorInProblemMode(t *testing.T) {
 	if !reflect.DeepEqual(problem, want) {
 		t.Errorf("problem = %v, want %v", problem, want)
 	}
-	if !strings.Contains(logs.String(), `unrecognized error in "GET" "/test": pq: relation "ledger" does not exist`) {
+	if !strings.Contains(logs.String(), `ERROR error answered with a generic 500 reason="no HTTP status" method=GET path=/test error="pq: relation \"ledger\" does not exist"`) {
 		t.Errorf("the original error must be logged server-side, got %q", logs.String())
 	}
 }
 
-// TestLogUnhandledKeepsAnEncodedLineBreakInOneLine: the path is decoded, so
-// %0A arrives as a line break and would start a forged log line if written
-// as is.
-func TestLogUnhandledKeepsAnEncodedLineBreakInOneLine(t *testing.T) {
+// TestErrorLineKeepsAnEncodedLineBreakInOneLine: the path is decoded, so %0A
+// arrives as a line break and would start a forged log line if written as is.
+func TestErrorLineKeepsAnEncodedLineBreakInOneLine(t *testing.T) {
 	var logs bytes.Buffer
 	prev, flags := log.Writer(), log.Flags()
 	log.SetOutput(&logs)
@@ -111,7 +113,7 @@ func TestLogUnhandledKeepsAnEncodedLineBreakInOneLine(t *testing.T) {
 	r := httptest.NewRequest("GET", "/ledger%0Aunrecognized%20error%20in%20GET%20/admin", nil)
 	HandleError(httptest.NewRecorder(), r, errors.New("boom"), false)
 
-	want := `unrecognized error in "GET" "/ledger\nunrecognized error in GET /admin": boom` + "\n"
+	want := `ERROR error answered with a generic 500 reason="no HTTP status" method=GET path="/ledger\nunrecognized error in GET /admin" error=boom` + "\n"
 	if logs.String() != want {
 		t.Errorf("log = %q, want %q", logs.String(), want)
 	}
@@ -127,7 +129,7 @@ func TestResolveKeepsAnErrorStatus(t *testing.T) {
 
 	for _, status := range []int{400, 404, 418, 499, 500, 503, 599} {
 		err := fmt.Errorf("lookup: %w", apix.WithStatus(status, "custom message"))
-		gotStatus, got := Resolve("GET", "/test", err)
+		gotStatus, got := Resolve(context.Background(), Request{Method: "GET", Path: "/test"}, err)
 		if gotStatus != status || got != err {
 			t.Errorf("status %d: Resolve = %d, %v; want %d and the error itself", status, gotStatus, got, status)
 		}
@@ -150,11 +152,11 @@ func TestResolveReplacesAnyOtherStatus(t *testing.T) {
 
 	for _, status := range []int{-1, 0, 99, 100, 103, 200, 204, 302, 304, 399, 600, 999, 1000} {
 		logs.Reset()
-		gotStatus, got := Resolve("GET", "/test", apix.WithStatus(status, "custom message"))
+		gotStatus, got := Resolve(context.Background(), Request{Method: "GET", Path: "/test"}, apix.WithStatus(status, "custom message"))
 		if gotStatus != http.StatusInternalServerError || !reflect.DeepEqual(got, InternalError()) {
 			t.Errorf("status %d: Resolve = %d, %#v; want 500 and InternalError", status, gotStatus, got)
 		}
-		want := fmt.Sprintf(`error with HTTP status %d, not 4xx or 5xx, in "GET" "/test": http %d: custom message`+"\n", status, status)
+		want := fmt.Sprintf(`ERROR error answered with a generic 500 reason="HTTP status outside 4xx and 5xx" status=%d method=GET path=/test error="http %d: custom message"`+"\n", status, status)
 		if logs.String() != want {
 			t.Errorf("status %d: log = %q, want %q", status, logs.String(), want)
 		}
@@ -181,7 +183,7 @@ func TestHandleErrorWithAProblemWithoutStatus(t *testing.T) {
 			t.Errorf("problem mode %v: the error must not reach the client, got %s", problemMode, w.Body.String())
 		}
 	}
-	if got := strings.Count(logs.String(), `error with HTTP status 0, not 4xx or 5xx, in "GET" "/test": Missing status`); got != 2 {
+	if got := strings.Count(logs.String(), `reason="HTTP status outside 4xx and 5xx" status=0 method=GET path=/test error="Missing status"`); got != 2 {
 		t.Errorf("want the error logged once per request, got %q", logs.String())
 	}
 }
@@ -246,4 +248,68 @@ func TestHandleErrorProblemDetailsWithExtensions(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "spout") {
 		t.Errorf("expected extension field in body, got %s", w.Body.String())
 	}
+}
+
+// TestErrorLineGoesToTheConfiguredLogger: with a logger passed to
+// apix.SetLogger, the line goes there with the request ids and the request
+// context, and not to the log package. Without one, it goes to
+// slog.Default(), which writes through the log package.
+func TestErrorLineGoesToTheConfiguredLogger(t *testing.T) {
+	var std bytes.Buffer
+	prev, flags := log.Writer(), log.Flags()
+	log.SetOutput(&std)
+	log.SetFlags(0)
+	t.Cleanup(func() { log.SetOutput(prev); log.SetFlags(flags) })
+
+	var lines bytes.Buffer
+	handler := &contextRecorder{Handler: slog.NewJSONHandler(&lines, nil)}
+	logging.Configure(slog.New(handler))
+	t.Cleanup(func() { logging.Configure(nil) })
+
+	type traceKey struct{}
+	r := httptest.NewRequest("POST", "/ledger", nil)
+	r.Header.Set("X-Request-Id", "req-1")
+	r.Header.Set("X-Correlation-ID", "corr-1")
+	r = r.WithContext(context.WithValue(r.Context(), traceKey{}, "trace-1"))
+	HandleError(httptest.NewRecorder(), r, errors.New("boom"), true)
+
+	var line map[string]any
+	if err := json.Unmarshal(lines.Bytes(), &line); err != nil {
+		t.Fatalf("line is not one JSON object: %v: %q", err, lines.String())
+	}
+	delete(line, "time")
+	want := map[string]any{
+		"level": "ERROR", "msg": "error answered with a generic 500", "reason": "no HTTP status",
+		"method": "POST", "path": "/ledger", "request_id": "req-1", "correlation_id": "corr-1", "error": "boom",
+	}
+	if !reflect.DeepEqual(line, want) {
+		t.Errorf("line = %v, want %v", line, want)
+	}
+	if handler.ctx == nil || handler.ctx.Value(traceKey{}) != "trace-1" {
+		t.Error("the handler must receive the request's context")
+	}
+	if std.Len() != 0 {
+		t.Errorf("nothing should reach the log package, got %q", std.String())
+	}
+
+	logging.Configure(nil)
+	lines.Reset()
+	HandleError(httptest.NewRecorder(), httptest.NewRequest("GET", "/ledger", nil), errors.New("boom"), false)
+	if lines.Len() != 0 {
+		t.Errorf("the removed logger received %q", lines.String())
+	}
+	if want := `ERROR error answered with a generic 500 reason="no HTTP status" method=GET path=/ledger error=boom` + "\n"; std.String() != want {
+		t.Errorf("log = %q, want %q", std.String(), want)
+	}
+}
+
+// contextRecorder keeps the context of the last record it handled.
+type contextRecorder struct {
+	slog.Handler
+	ctx context.Context
+}
+
+func (h *contextRecorder) Handle(ctx context.Context, r slog.Record) error {
+	h.ctx = ctx
+	return h.Handler.Handle(ctx, r)
 }

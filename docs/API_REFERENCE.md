@@ -11,6 +11,7 @@ Complete API documentation for the `apix` library.
 - [OpenAPI Builder](#openapi-builder)
 - [Runtime Server](#runtime-server)
 - [CLI Commands](#cli-commands)
+- [Logging](#logging)
 
 ## Core Types
 
@@ -716,6 +717,19 @@ Returns a copy of registered routes sorted by path+method for deterministic outp
 ```go
 func Snapshot() []*RouteRef
 ```
+
+## Logging
+
+### SetLogger
+
+Sends apix's logs to `logger`. `nil` restores the defaults.
+
+```go
+func SetLogger(logger *slog.Logger)
+```
+
+- **Errors answered with a generic 500.** These are errors without an HTTP status, or with a status outside 4xx and 5xx. They are logged at Error level, with the request's context, under the message `error answered with a generic 500`. The attributes are `reason`, `status` (for an invalid status), `method`, `path`, `request_id` (from `X-Request-ID`), `correlation_id` (from `X-Correlation-ID`) and `error`. The two ids are left out when the header is not set. Without a logger, these lines go to `slog.Default()`.
+- **Library events.** Route registration, schema generation and document builds are logged at Info and Debug level, and only to a logger passed to `SetLogger`. Set it before registering routes.
 
 ## Error Types
 
