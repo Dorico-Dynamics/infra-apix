@@ -2,14 +2,13 @@ package gin
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"reflect"
 
 	apix "github.com/Infra-Forge/infra-apix"
+	"github.com/Infra-Forge/infra-apix/internal/errorhandler"
+	"github.com/Infra-Forge/infra-apix/internal/requestbody"
 	"github.com/gin-gonic/gin"
 )
 
@@ -173,23 +172,9 @@ func (a *GinAdapter) handleError(ctx context.Context, c *gin.Context, err error)
 }
 
 func defaultDecoder(ctx context.Context, c *gin.Context, dst any) error {
-	if c.Request.Body == nil {
-		return &httpError{status: http.StatusBadRequest, message: "request body required"}
-	}
-	decoder := json.NewDecoder(c.Request.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(dst); err != nil {
-		if errors.Is(err, io.EOF) {
-			return &httpError{status: http.StatusBadRequest, message: "request body required"}
-		}
-		return &httpError{status: http.StatusBadRequest, message: err.Error()}
-	}
-	if decoder.More() {
-		return &httpError{status: http.StatusBadRequest, message: "unexpected additional JSON content"}
-	}
 	// Gin has built-in validation via ShouldBind, but we use manual JSON decoding for consistency
 	// Users can provide custom decoder if they want Gin's validation
-	return nil
+	return requestbody.Decode(c.Request.Body, dst)
 }
 
 func defaultEncoder(ctx context.Context, c *gin.Context, status int, payload any) error {
@@ -202,41 +187,23 @@ func defaultEncoder(ctx context.Context, c *gin.Context, status int, payload any
 }
 
 func defaultErrorHandler(ctx context.Context, c *gin.Context, err error, useProblemDetails bool) {
-	// First check for StatusCoder interface (new pattern)
+	// An error without an HTTP status is logged, and the client gets a generic 500.
 	var statusCoder apix.StatusCoder
-	if errors.As(err, &statusCoder) {
-		status := statusCoder.HTTPStatus()
+	if !errors.As(err, &statusCoder) {
+		errorhandler.LogUnhandled(c.Request.Method, c.Request.URL.Path, err)
+		statusCoder = errorhandler.InternalError()
+		err = statusCoder
+	}
+	status := statusCoder.HTTPStatus()
 
-		// If Problem Details is enabled, serialize as RFC 9457
-		if useProblemDetails {
-			problem := apix.ToProblemDetails(err)
-			c.Header("Content-Type", "application/problem+json")
-			c.JSON(status, problem)
-			return
-		}
-
-		c.JSON(status, gin.H{"error": err.Error()})
+	// If Problem Details is enabled, serialize as RFC 9457
+	if useProblemDetails {
+		c.Header("Content-Type", "application/problem+json")
+		c.JSON(status, apix.ToProblemDetails(err))
 		return
 	}
 
-	// Then check for legacy httpError type (backward compatibility)
-	var httpErr *httpError
-	if errors.As(err, &httpErr) {
-		c.JSON(httpErr.status, gin.H{"error": httpErr.message})
-		return
-	}
-
-	// Default to 500 for unrecognized errors
-	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-}
-
-type httpError struct {
-	status  int
-	message string
-}
-
-func (e *httpError) Error() string {
-	return fmt.Sprintf("http %d: %s", e.status, e.message)
+	c.JSON(status, gin.H{"error": err.Error()})
 }
 
 func typeOf[T any]() reflect.Type {

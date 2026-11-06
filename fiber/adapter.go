@@ -1,16 +1,16 @@
 package fiber
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"reflect"
-	"strings"
 
 	apix "github.com/Infra-Forge/infra-apix"
+	"github.com/Infra-Forge/infra-apix/internal/errorhandler"
+	"github.com/Infra-Forge/infra-apix/internal/requestbody"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -172,22 +172,7 @@ func (a *FiberAdapter) handleError(ctx context.Context, c fiber.Ctx, err error) 
 }
 
 func defaultDecoder(ctx context.Context, c fiber.Ctx, dst any) error {
-	body := c.Body()
-	if len(body) == 0 {
-		return &httpError{status: http.StatusBadRequest, message: "request body required"}
-	}
-	decoder := json.NewDecoder(strings.NewReader(string(body)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(dst); err != nil {
-		if errors.Is(err, io.EOF) {
-			return &httpError{status: http.StatusBadRequest, message: "request body required"}
-		}
-		return &httpError{status: http.StatusBadRequest, message: err.Error()}
-	}
-	if decoder.More() {
-		return &httpError{status: http.StatusBadRequest, message: "unexpected additional JSON content"}
-	}
-	return nil
+	return requestbody.Decode(bytes.NewReader(c.Body()), dst)
 }
 
 func defaultEncoder(ctx context.Context, c fiber.Ctx, status int, payload any) error {
@@ -198,44 +183,27 @@ func defaultEncoder(ctx context.Context, c fiber.Ctx, status int, payload any) e
 }
 
 func defaultErrorHandler(ctx context.Context, c fiber.Ctx, err error, useProblemDetails bool) error {
-	// First check for StatusCoder interface (new pattern)
+	// An error without an HTTP status is logged, and the client gets a generic 500.
 	var statusCoder apix.StatusCoder
-	if errors.As(err, &statusCoder) {
-		status := statusCoder.HTTPStatus()
+	if !errors.As(err, &statusCoder) {
+		errorhandler.LogUnhandled(c.Method(), c.Path(), err)
+		statusCoder = errorhandler.InternalError()
+		err = statusCoder
+	}
+	status := statusCoder.HTTPStatus()
 
-		// If Problem Details is enabled, serialize as RFC 9457
-		if useProblemDetails {
-			problem := apix.ToProblemDetails(err)
-			// Fiber's JSON() overrides Content-Type, so we need to marshal manually
-			data, marshalErr := json.Marshal(problem)
-			if marshalErr != nil {
-				// Fall back to plain error response if marshaling fails
-				return c.Status(status).JSON(fiber.Map{"error": err.Error()})
-			}
+	// If Problem Details is enabled, serialize as RFC 9457
+	if useProblemDetails {
+		// Fiber's JSON() overrides Content-Type, so we need to marshal manually
+		data, marshalErr := json.Marshal(apix.ToProblemDetails(err))
+		if marshalErr == nil {
 			c.Set("Content-Type", "application/problem+json")
 			return c.Status(status).Send(data)
 		}
-
-		return c.Status(status).JSON(fiber.Map{"error": err.Error()})
+		// Fall back to plain error response if marshaling fails
 	}
 
-	// Then check for legacy httpError type (backward compatibility)
-	var httpErr *httpError
-	if errors.As(err, &httpErr) {
-		return c.Status(httpErr.status).JSON(fiber.Map{"error": httpErr.message})
-	}
-
-	// Default to 500 for unrecognized errors
-	return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
-}
-
-type httpError struct {
-	status  int
-	message string
-}
-
-func (e *httpError) Error() string {
-	return fmt.Sprintf("http %d: %s", e.status, e.message)
+	return c.Status(status).JSON(fiber.Map{"error": err.Error()})
 }
 
 func typeOf[T any]() reflect.Type {

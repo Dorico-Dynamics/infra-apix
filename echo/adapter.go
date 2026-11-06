@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"reflect"
 
 	apix "github.com/Infra-Forge/infra-apix"
+	"github.com/Infra-Forge/infra-apix/internal/requestbody"
 	"github.com/labstack/echo/v4"
 )
 
@@ -184,25 +184,11 @@ func defaultErrorTransformer(err error, useProblemDetails bool) error {
 }
 
 func defaultDecoder(ctx context.Context, c echo.Context, dst any) error {
-	req := c.Request()
-	if req.Body == nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "request body required")
-	}
-	decoder := json.NewDecoder(req.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(dst); err != nil {
-		if errors.Is(err, io.EOF) {
-			return echo.NewHTTPError(http.StatusBadRequest, "request body required")
-		}
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	if decoder.More() {
-		return echo.NewHTTPError(http.StatusBadRequest, "unexpected additional JSON content")
+	if err := requestbody.Decode(c.Request().Body, dst); err != nil {
+		return err
 	}
 	if v := c.Echo().Validator; v != nil {
-		if err := v.Validate(dst); err != nil {
-			return echo.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
-		}
+		return requestbody.Invalid(v.Validate(dst))
 	}
 	return nil
 }

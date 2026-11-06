@@ -3,14 +3,12 @@ package mux
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"reflect"
 
 	apix "github.com/Infra-Forge/infra-apix"
 	"github.com/Infra-Forge/infra-apix/internal/errorhandler"
+	"github.com/Infra-Forge/infra-apix/internal/requestbody"
 	"github.com/gorilla/mux"
 )
 
@@ -176,30 +174,17 @@ func (a *MuxAdapter) handleError(ctx context.Context, w http.ResponseWriter, r *
 		handler(ctx, w, r, err)
 		return
 	}
-	defaultErrorHandler(ctx, w, r, err, a.opts.UseProblemDetails)
+	errorhandler.HandleError(w, r, err, a.opts.UseProblemDetails)
 }
 
 func defaultDecoder(ctx context.Context, w http.ResponseWriter, r *http.Request, dst any, validator Validator) error {
-	if r.Body == nil {
-		return &httpError{status: http.StatusBadRequest, message: "request body required"}
+	if err := requestbody.Decode(r.Body, dst); err != nil {
+		return err
 	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(dst); err != nil {
-		if errors.Is(err, io.EOF) {
-			return &httpError{status: http.StatusBadRequest, message: "request body required"}
-		}
-		return &httpError{status: http.StatusBadRequest, message: err.Error()}
+	if validator == nil {
+		return nil
 	}
-	if decoder.More() {
-		return &httpError{status: http.StatusBadRequest, message: "unexpected additional JSON content"}
-	}
-	if validator != nil {
-		if err := validator.Validate(dst); err != nil {
-			return &httpError{status: http.StatusUnprocessableEntity, message: err.Error()}
-		}
-	}
-	return nil
+	return requestbody.Invalid(validator.Validate(dst))
 }
 
 func defaultEncoder(ctx context.Context, w http.ResponseWriter, r *http.Request, status int, payload any) error {
@@ -210,27 +195,6 @@ func defaultEncoder(ctx context.Context, w http.ResponseWriter, r *http.Request,
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	return json.NewEncoder(w).Encode(payload)
-}
-
-func defaultErrorHandler(ctx context.Context, w http.ResponseWriter, r *http.Request, err error, useProblemDetails bool) {
-	// Check for legacy httpError type first (backward compatibility)
-	var httpErr *httpError
-	if errors.As(err, &httpErr) {
-		http.Error(w, httpErr.message, httpErr.status)
-		return
-	}
-
-	// Use shared error handler for StatusCoder and Problem Details support
-	errorhandler.HandleError(w, r, err, useProblemDetails)
-}
-
-type httpError struct {
-	status  int
-	message string
-}
-
-func (e *httpError) Error() string {
-	return fmt.Sprintf("http %d: %s", e.status, e.message)
 }
 
 func typeOf[T any]() reflect.Type {
