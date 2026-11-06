@@ -197,18 +197,7 @@ func buildSpecPayload(ctx context.Context, cfg generateConfig) ([]byte, error) {
 }
 
 func runSpecGuard(ctx context.Context, cfg generateConfig, existingPathFlag string) error {
-	tmp, err := os.CreateTemp("", "apix-spec-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmp.Close()
-	defer os.Remove(tmp.Name())
-
-	tempCfg := cfg
-	tempCfg.outputPath = tmp.Name()
-	tempCfg.stdout = false
-
-	expected, err := buildSpecPayload(ctx, tempCfg)
+	expected, err := buildSpecPayload(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("generate spec: %w", err)
 	}
