@@ -476,6 +476,14 @@ handler, err := runtime.NewHandler(runtime.Config{
     Version: "1.0.0",
     Servers: []string{"https://api.example.com", "https://staging.example.com"},
 
+    // Security schemes the routes name with apix.WithSecurity; the build
+    // fails for a scheme a route names but nothing declares
+    SecuritySchemes: openapi3.SecuritySchemes{
+        "BearerAuth": &openapi3.SecuritySchemeRef{
+            Value: openapi3.NewJWTSecurityScheme(),
+        },
+    },
+
     // Validation
     Validate: true, // Validate the spec on every build before serving (default: false)
 
@@ -489,13 +497,9 @@ handler, err := runtime.NewHandler(runtime.Config{
     // Swagger UI
     EnableSwaggerUI: true,
 
-    // Advanced customization
+    // Advanced customization, applied after the fields above
     CustomizeBuilder: func(b *openapi.Builder) {
-        b.SecuritySchemes = openapi3.SecuritySchemes{
-            "BearerAuth": &openapi3.SecuritySchemeRef{
-                Value: openapi3.NewJWTSecurityScheme(),
-            },
-        }
+        b.Info.Description = "Public API"
     },
 })
 ```

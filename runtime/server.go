@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -28,6 +29,12 @@ type Config struct {
 
 	// Servers are applied to the generated document.
 	Servers []string
+
+	// SecuritySchemes become the document's components.securitySchemes, such
+	// as the BearerAuth that routes name with apix.WithSecurity. The build
+	// fails for a scheme a route names but nothing declares. CustomizeBuilder
+	// runs afterwards and can change them.
+	SecuritySchemes openapi3.SecuritySchemes
 
 	// Validate checks the document with kin-openapi on every build and answers
 	// 500 instead of serving an invalid one. Off unless set.
@@ -77,6 +84,11 @@ func NewHandler(cfg Config) (*Handler, error) {
 		cfg.SwaggerUIPath = "/swagger"
 	}
 
+	copySchemes, err := securitySchemeCopier(cfg.SecuritySchemes)
+	if err != nil {
+		return nil, err
+	}
+
 	h := &Handler{cfg: cfg}
 	h.builderPool.New = func() any {
 		b := openapi.NewBuilder()
@@ -93,12 +105,45 @@ func NewHandler(cfg Config) (*Handler, error) {
 			}
 			b.Servers = append(b.Servers, &openapi3.Server{URL: srv})
 		}
+		b.SecuritySchemes = copySchemes()
 		if cfg.CustomizeBuilder != nil {
 			cfg.CustomizeBuilder(b)
 		}
 		return b
 	}
 	return h, nil
+}
+
+// securitySchemeCopier returns a function that decodes a fresh deep copy of
+// schemes for each pooled builder. Builders are created concurrently, and
+// CustomizeBuilder or a plugin may change a builder's schemes down to a
+// scheme's fields, so no two builders, and not the caller's Config, may share
+// a scheme object. The copy goes through the schemes' JSON form: a scheme's
+// Origin is dropped, and a $ref scheme keeps only its reference. NewHandler
+// fails for schemes that do not survive it, so later copies cannot fail.
+func securitySchemeCopier(schemes openapi3.SecuritySchemes) (func() openapi3.SecuritySchemes, error) {
+	if len(schemes) == 0 {
+		return func() openapi3.SecuritySchemes { return nil }, nil
+	}
+	data, err := json.Marshal(schemes)
+	if err != nil {
+		return nil, fmt.Errorf("encode security schemes: %w", err)
+	}
+	decode := func() (openapi3.SecuritySchemes, error) {
+		var copied openapi3.SecuritySchemes
+		err := json.Unmarshal(data, &copied)
+		return copied, err
+	}
+	if _, err := decode(); err != nil {
+		return nil, fmt.Errorf("decode security schemes: %w", err)
+	}
+	return func() openapi3.SecuritySchemes {
+		copied, err := decode()
+		if err != nil {
+			panic(fmt.Sprintf("apix runtime: security schemes that NewHandler decoded failed to decode again: %v", err))
+		}
+		return copied
+	}, nil
 }
 
 // RegisterHTTP registers handlers on the provided mux.

@@ -56,6 +56,9 @@ func TestBuilderGeneratesDeterministicDocument(t *testing.T) {
 	b.Info.Title = "Test API"
 	b.Info.Version = "2025.1"
 	b.Servers = append(b.Servers, &openapi3.Server{URL: "https://example.com"})
+	b.SecuritySchemes = openapi3.SecuritySchemes{
+		"BearerAuth": {Value: openapi3.NewJWTSecurityScheme()},
+	}
 
 	doc, err := b.Build(apix.Snapshot())
 	if err != nil {

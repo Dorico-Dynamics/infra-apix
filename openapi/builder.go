@@ -3,8 +3,10 @@ package openapi
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -41,7 +43,9 @@ func NewBuilder() *Builder {
 }
 
 // Build transforms the route registry snapshot into an OpenAPI document. It
-// fails, naming every pair, when two Go types map to one component name.
+// fails, naming every pair, when two Go types map to one component name, and,
+// naming every scheme, when a security requirement names a scheme that
+// components.securitySchemes does not declare once plugins have run.
 func (b *Builder) Build(routes []*apix.RouteRef) (*openapi3.T, error) {
 	paths := openapi3.NewPaths()
 	components := &openapi3.Components{
@@ -88,6 +92,9 @@ func (b *Builder) Build(routes []*apix.RouteRef) (*openapi3.T, error) {
 
 	// Execute plugin hooks for spec building
 	if err := apix.ExecuteOnSpecBuild(doc); err != nil {
+		return nil, err
+	}
+	if err := checkSecuritySchemes(doc); err != nil {
 		return nil, err
 	}
 
@@ -666,6 +673,54 @@ func sortPaths(paths *openapi3.Paths) {
 		sorted.Set(k, paths.Value(k))
 	}
 	*paths = *sorted
+}
+
+// checkSecuritySchemes fails for every scheme that a security requirement of
+// doc names but components.securitySchemes does not declare. OpenAPI requires
+// each name to match a declared scheme; without one, clients and Swagger UI
+// cannot tell how to authenticate. Each error names the first user, the
+// top-level security or an operation in path order, and counts the others.
+func checkSecuritySchemes(doc *openapi3.T) error {
+	var declared openapi3.SecuritySchemes
+	if doc.Components != nil {
+		declared = doc.Components.SecuritySchemes
+	}
+	first := map[string]string{}
+	uses := map[string]int{}
+	note := func(where string, reqs openapi3.SecurityRequirements) {
+		seen := map[string]bool{}
+		for _, req := range reqs {
+			for name := range req {
+				if _, ok := declared[name]; ok || seen[name] {
+					continue
+				}
+				seen[name] = true
+				if uses[name] == 0 {
+					first[name] = where
+				}
+				uses[name]++
+			}
+		}
+	}
+	note("the top-level security", doc.Security)
+	for _, path := range doc.Paths.InMatchingOrder() {
+		ops := doc.Paths.Value(path).Operations()
+		for _, method := range slices.Sorted(maps.Keys(ops)) {
+			if sec := ops[method].Security; sec != nil {
+				note(method+" "+path, *sec)
+			}
+		}
+	}
+
+	errs := make([]error, 0, len(uses))
+	for _, name := range slices.Sorted(maps.Keys(uses)) {
+		more := ""
+		if n := uses[name] - 1; n > 0 {
+			more = fmt.Sprintf(" (and %d more)", n)
+		}
+		errs = append(errs, fmt.Errorf("security scheme %q is not declared in components.securitySchemes, but %s uses it%s", name, first[name], more))
+	}
+	return errors.Join(errs...)
 }
 
 func schemaRef(schema *openapi3.Schema) *openapi3.SchemaRef {

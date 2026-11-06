@@ -236,7 +236,7 @@ func WithSecurity(name string, scopes ...string) RouteOption
 ```
 
 **Parameters:**
-- `name`: Security scheme name (must be defined in OpenAPI builder)
+- `name`: Security scheme name, declared in `runtime.Config.SecuritySchemes` or `Builder.SecuritySchemes`; `Build` fails for a scheme nothing declares
 - `scopes`: Optional scopes required for this operation
 
 **Example:**
@@ -514,6 +514,10 @@ func NewBuilder() *Builder
 func (b *Builder) Build(routes []*apix.RouteRef) (*openapi3.T, error)
 ```
 
+`Build` fails when two Go types map to one component name, and when a
+security requirement names a scheme that neither `SecuritySchemes` nor an
+`OnSpecBuild` plugin declares. Each error names the scheme and its first user.
+
 **Example:**
 
 ```go
@@ -575,6 +579,9 @@ type Config struct {
     Version string
     Servers []string
 
+    // components.securitySchemes; every scheme a route names must be declared
+    SecuritySchemes openapi3.SecuritySchemes
+
     // Validation
     Validate bool // Validate the spec on every build before serving (default: false)
 
@@ -620,12 +627,10 @@ handler, err := runtime.NewHandler(runtime.Config{
     EnableSwaggerUI: true,
     Servers:         []string{"https://api.example.com"},
     CacheTTL:        5 * time.Minute,
-    CustomizeBuilder: func(b *openapi.Builder) {
-        b.SecuritySchemes = openapi3.SecuritySchemes{
-            "BearerAuth": &openapi3.SecuritySchemeRef{
-                Value: openapi3.NewJWTSecurityScheme(),
-            },
-        }
+    SecuritySchemes: openapi3.SecuritySchemes{
+        "BearerAuth": &openapi3.SecuritySchemeRef{
+            Value: openapi3.NewJWTSecurityScheme(),
+        },
     },
 })
 if err != nil {
