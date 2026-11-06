@@ -15,8 +15,8 @@ import (
 )
 
 // TestFiberAdapterErrorResponsesKeepInternalsPrivate: a decode failure is told
-// in JSON terms, never by Go type or package names, and an error without an
-// HTTP status becomes a generic 500, in both response formats.
+// in JSON terms, never by Go type or package names, and an error without a
+// 4xx or 5xx status becomes a generic 500, in both response formats.
 func TestFiberAdapterErrorResponsesKeepInternalsPrivate(t *testing.T) {
 	internal := errors.New(`pq: relation "items" does not exist`)
 	cases := []struct {
@@ -45,6 +45,26 @@ func TestFiberAdapterErrorResponsesKeepInternalsPrivate(t *testing.T) {
 		},
 		{
 			name: "error without status as problem", problem: true, body: `{"name": "a"}`, handlerErr: internal,
+			status: http.StatusInternalServerError, contentType: "application/problem+json",
+			response: `{"status":500,"title":"Internal Server Error","type":"about:blank"}`,
+		},
+		{
+			name: "error with status 0", body: `{"name": "a"}`, handlerErr: apix.WithStatus(0, "custom message"),
+			status: http.StatusInternalServerError, contentType: "application/json; charset=utf-8",
+			response: `{"error":"Internal Server Error"}`,
+		},
+		{
+			name: "problem without status", problem: true, body: `{"name": "a"}`, handlerErr: &apix.ProblemDetails{Title: "Missing status"},
+			status: http.StatusInternalServerError, contentType: "application/problem+json",
+			response: `{"status":500,"title":"Internal Server Error","type":"about:blank"}`,
+		},
+		{
+			name: "error with success status", body: `{"name": "a"}`, handlerErr: apix.WithStatus(http.StatusOK, "custom message"),
+			status: http.StatusInternalServerError, contentType: "application/json; charset=utf-8",
+			response: `{"error":"Internal Server Error"}`,
+		},
+		{
+			name: "error with not-modified status as problem", problem: true, body: `{"name": "a"}`, handlerErr: apix.WithStatus(http.StatusNotModified, "custom message"),
 			status: http.StatusInternalServerError, contentType: "application/problem+json",
 			response: `{"status":500,"title":"Internal Server Error","type":"about:blank"}`,
 		},

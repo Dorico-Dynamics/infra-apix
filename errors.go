@@ -19,6 +19,9 @@ var errorResponseType = reflect.TypeOf(ErrorResponse{})
 
 // StatusCoder is an interface for errors that can provide an HTTP status code.
 // Framework adapters check for this interface to determine the appropriate HTTP response status.
+// HTTPStatus must return a 4xx or 5xx status: the adapters log an error with
+// any other status, such as the 0 of a ProblemDetails without Status, and
+// answer a generic 500 instead.
 //
 // Example:
 //
