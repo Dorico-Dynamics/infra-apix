@@ -88,6 +88,19 @@ jobs:
       - name: Build CLI
         run: go build -o apix ./cmd/apix
 
+      # Each example is its own module that replaces infra-apix with this
+      # checkout, so a renamed API or module path fails here, not in a reader's
+      # copy. -mod=readonly: go.mod and go.sum must already be tidy.
+      - name: Build examples
+        run: |
+          set -euo pipefail
+          for dir in examples/*/; do
+            [ -f "${dir}go.mod" ] || continue
+            echo "::group::${dir}"
+            (cd "${dir}" && go build -mod=readonly ./... && go vet -mod=readonly ./...)
+            echo "::endgroup::"
+          done
+
   sonarqube:
     name: SonarQube Analysis
     runs-on: ubuntu-latest
