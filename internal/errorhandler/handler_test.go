@@ -1,9 +1,13 @@
 package errorhandler
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -61,6 +65,64 @@ func TestHandleErrorWithGenericError(t *testing.T) {
 	// Should NOT leak the internal error message
 	if strings.Contains(w.Body.String(), "generic error") {
 		t.Errorf("should not leak internal error message, got %s", w.Body.String())
+	}
+}
+
+func TestHandleErrorWithGenericErrorInProblemMode(t *testing.T) {
+	var logs bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(prev) })
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/test", nil)
+	HandleError(w, r, errors.New(`pq: relation "ledger" does not exist`), true)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Errorf("expected Content-Type application/problem+json, got %s", ct)
+	}
+	var problem map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatalf("body is not JSON: %v", err)
+	}
+	want := map[string]any{"type": "about:blank", "title": "Internal Server Error", "status": float64(500)}
+	if !reflect.DeepEqual(problem, want) {
+		t.Errorf("problem = %v, want %v", problem, want)
+	}
+	if !strings.Contains(logs.String(), `unrecognized error in GET /test: pq: relation "ledger" does not exist`) {
+		t.Errorf("the original error must be logged server-side, got %q", logs.String())
+	}
+}
+
+func TestHandleErrorFallsBackToTextWhenProblemCannotBeMarshaled(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/test", nil)
+	problem := apix.NewProblemDetails(http.StatusConflict, "Conflict", "version mismatch").
+		WithExtension("unencodable", make(chan int))
+
+	HandleError(w, r, problem, true)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("expected status 409, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("expected text/plain fallback, got %s", ct)
+	}
+	if strings.TrimSpace(w.Body.String()) != "version mismatch" {
+		t.Errorf("unexpected body %q", w.Body.String())
+	}
+}
+
+func TestInternalError(t *testing.T) {
+	err := InternalError()
+	if err.HTTPStatus() != http.StatusInternalServerError || err.Error() != "Internal Server Error" {
+		t.Fatalf("got %d %q", err.HTTPStatus(), err.Error())
+	}
+	if err.Detail != "" || err.Type != "" || len(err.Extensions) != 0 {
+		t.Fatalf("InternalError must carry nothing beyond the status: %+v", err)
 	}
 }
 
