@@ -196,21 +196,26 @@ func TestRunGenerateStdout(t *testing.T) {
 	root := t.TempDir()
 	apix.RegisterRoute(&apix.RouteRef{Method: apix.MethodGet, Path: "/", Responses: map[int]*apix.ResponseRef{200: {}}})
 	old := os.Stdout
-	read, write, _ := os.Pipe()
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
 	os.Stdout = write
 	cfg := generateConfig{projectPath: root, outputPath: filepath.Join(root, "unused"), format: "json", stdout: true}
 	if err := runGenerate(context.Background(), cfg); err != nil {
 		t.Fatalf("expected stdout generation to succeed: %v", err)
 	}
-	write.Close()
+	if err := write.Close(); err != nil {
+		t.Fatalf("close stdout pipe: %v", err)
+	}
 	var buf strings.Builder
 	if _, err := io.Copy(&buf, read); err != nil {
 		t.Fatalf("failed to read stdout: %v", err)
 	}
 	os.Stdout = old
 	output := buf.String()
-	if !strings.Contains(output, doNotEditHeader) {
-		t.Fatalf("expected header in stdout output")
+	if !strings.HasPrefix(output, doNotEditHeader+"\n{") {
+		t.Fatalf("expected the header line, then the document, got %.120q", output)
 	}
 	if !strings.Contains(output, "/") {
 		t.Fatalf("expected spec content in stdout output")

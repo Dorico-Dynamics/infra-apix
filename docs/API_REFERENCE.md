@@ -585,8 +585,9 @@ type Config struct {
     // Validation
     Validate bool // Validate the spec on every build before serving (default: false)
 
-    // Caching
-    CacheTTL time.Duration // Cache spec for duration (0 = no cache)
+    // Caching: the document, or the error that stopped its build, is kept
+    // until a route or plugin is registered or removed
+    CacheTTL time.Duration // Also rebuild it once it is this old (0: never)
 
     // Paths
     SpecPath      string // Default: "/openapi.json", or "/openapi.yaml" for YAML
@@ -626,7 +627,6 @@ handler, err := runtime.NewHandler(runtime.Config{
     Format:          "json",
     EnableSwaggerUI: true,
     Servers:         []string{"https://api.example.com"},
-    CacheTTL:        5 * time.Minute,
     SecuritySchemes: openapi3.SecuritySchemes{
         "BearerAuth": &openapi3.SecuritySchemeRef{
             Value: openapi3.NewJWTSecurityScheme(),
@@ -734,8 +734,8 @@ Sends apix's logs to `logger`. `nil` restores the defaults.
 func SetLogger(logger *slog.Logger)
 ```
 
-- **Errors answered with a generic 500.** These are errors without an HTTP status, or with a status outside 4xx and 5xx. They are logged at Error level, with the request's context, under the message `error answered with a generic 500`. The attributes are `reason`, `status` (for an invalid status), `method`, `path`, `request_id` (from `X-Request-ID`), `correlation_id` (from `X-Correlation-ID`) and `error`. The two ids are left out when the header is not set. Without a logger, these lines go to `slog.Default()`. The Echo adapter leaves an error without an HTTP status to Echo's `HTTPErrorHandler`, which answers and logs it. It logs only an error whose status is outside 4xx and 5xx. `ProblemDetailsErrorHandler` without a fallback answers any error itself and logs it like the other adapters.
-- **Library events.** Route registration, schema generation and document builds are logged at Info and Debug level, and only to a logger passed to `SetLogger`. Set it before registering routes.
+- **Errors answered with a generic 500.** These are errors without an HTTP status, or with a status outside 4xx and 5xx. They are logged at Error level, with the request's context, under the message `error answered with a generic 500`. The attributes are `reason`, `status` (for an invalid status), `method`, `path`, `request_id` (from `X-Request-ID`), `correlation_id` (from `X-Correlation-ID`) and `error`. The two ids are left out when the header is not set. Without a logger, these lines go to `slog.Default()`. The Echo adapter leaves an error without an HTTP status to Echo's `HTTPErrorHandler`, so it logs only an error whose status is outside 4xx and 5xx. Echo's default `HTTPErrorHandler` does not log the errors it answers. `ProblemDetailsErrorHandler` without a fallback answers any error itself and logs it like the other adapters. The runtime `Handler` logs a document it cannot build, validate or encode the same way, with the reason `OpenAPI document build failed`, and answers a plain 500. Under `RegisterEcho` it returns the error to Echo's `HTTPErrorHandler` instead.
+- **Library events.** Route registration, schema generation and document builds are logged at Info and Debug level, and a response the client did not receive in full at Warn level: a runtime `Handler` document or Swagger UI page (`OpenAPI document write failed`, `Swagger UI write failed`), or a chi or mux problem+json error (`error response write failed`), with the request attributes above. They go only to a logger passed to `SetLogger`. Set it before registering routes.
 
 ## Error Types
 

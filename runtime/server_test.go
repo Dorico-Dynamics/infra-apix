@@ -64,8 +64,8 @@ func TestHandlerServeHTTPValidationError(t *testing.T) {
 }
 
 // TestValidateIsOffUnlessSet: a document kin-openapi rejects, here one with a
-// blank info title, is served while Validate is unset and answered with 500
-// once it is set.
+// blank info title, is served while Validate is unset and answered with a
+// plain 500 once it is set.
 func TestValidateIsOffUnlessSet(t *testing.T) {
 	apix.ResetRegistry()
 	apix.RegisterRoute(&apix.RouteRef{Method: apix.MethodGet, Path: "/untitled", Responses: map[int]*apix.ResponseRef{http.StatusOK: {}}})
@@ -78,7 +78,7 @@ func TestValidateIsOffUnlessSet(t *testing.T) {
 		wantBody string
 	}{
 		{"unset", runtime.Config{CustomizeBuilder: blankTitle}, http.StatusOK, `"/untitled"`},
-		{"set", runtime.Config{CustomizeBuilder: blankTitle, Validate: true}, http.StatusInternalServerError, "validate openapi: "},
+		{"set", runtime.Config{CustomizeBuilder: blankTitle, Validate: true}, http.StatusInternalServerError, "Internal Server Error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, err := runtime.NewHandler(tc.cfg)

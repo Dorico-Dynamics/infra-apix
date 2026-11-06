@@ -129,8 +129,9 @@ func runGenerate(ctx context.Context, cfg generateConfig) error {
 	}
 
 	if cfg.stdout {
-		fmt.Fprintln(os.Stdout, doNotEditHeader)
-		if _, err := os.Stdout.Write(payload[len(doNotEditHeader)+2:]); err != nil {
+		// One line break after the header, where the file has a blank line.
+		out := append([]byte(doNotEditHeader+"\n"), payload[len(doNotEditHeader)+2:]...)
+		if _, err := os.Stdout.Write(out); err != nil {
 			return fmt.Errorf("write spec to stdout: %w", err)
 		}
 		return nil
@@ -196,18 +197,7 @@ func buildSpecPayload(ctx context.Context, cfg generateConfig) ([]byte, error) {
 }
 
 func runSpecGuard(ctx context.Context, cfg generateConfig, existingPathFlag string) error {
-	tmp, err := os.CreateTemp("", "apix-spec-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmp.Close()
-	defer os.Remove(tmp.Name())
-
-	tempCfg := cfg
-	tempCfg.outputPath = tmp.Name()
-	tempCfg.stdout = false
-
-	expected, err := buildSpecPayload(ctx, tempCfg)
+	expected, err := buildSpecPayload(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("generate spec: %w", err)
 	}

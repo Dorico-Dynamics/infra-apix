@@ -97,7 +97,7 @@ func ErrorLogger() *slog.Logger {
 // WithFields returns a logger with the given fields
 func (l *Logger) WithFields(fields ...any) *Logger {
 	return &Logger{
-		Logger: l.Logger.With(fields...),
+		Logger: l.With(fields...),
 	}
 }
 

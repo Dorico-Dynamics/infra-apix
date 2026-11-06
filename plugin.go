@@ -4,6 +4,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/Infra-Forge/infra-apix/internal/generation"
 	"github.com/Infra-Forge/infra-apix/internal/logging"
 	"github.com/getkin/kin-openapi/openapi3"
 )
@@ -50,6 +51,7 @@ func RegisterPlugin(p Plugin) {
 	pluginRegistry.mu.Lock()
 	defer pluginRegistry.mu.Unlock()
 	pluginRegistry.plugins[p.Name()] = p
+	generation.Advance()
 	logging.GetLogger().PluginRegistered(p.Name())
 }
 
@@ -58,6 +60,7 @@ func UnregisterPlugin(name string) {
 	pluginRegistry.mu.Lock()
 	defer pluginRegistry.mu.Unlock()
 	delete(pluginRegistry.plugins, name)
+	generation.Advance()
 }
 
 // GetPlugin retrieves a plugin by name.
@@ -85,6 +88,7 @@ func ResetPlugins() {
 	pluginRegistry.mu.Lock()
 	defer pluginRegistry.mu.Unlock()
 	pluginRegistry.plugins = make(map[string]Plugin)
+	generation.Advance()
 }
 
 // getPluginsSorted returns a sorted slice of plugins for deterministic execution.

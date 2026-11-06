@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Infra-Forge/infra-apix/internal/generation"
 	"github.com/Infra-Forge/infra-apix/internal/logging"
 )
 
@@ -111,6 +112,7 @@ func ResetRegistry() {
 	globalRegistry.mu.Lock()
 	defer globalRegistry.mu.Unlock()
 	globalRegistry.routes = nil
+	generation.Advance()
 }
 
 // RegisterRoute registers a new route metadata entry.
@@ -127,6 +129,7 @@ func RegisterRoute(ref *RouteRef) {
 		ref.SuccessStatus = DefaultSuccessStatus(ref.Method)
 	}
 	globalRegistry.routes = append(globalRegistry.routes, ref)
+	generation.Advance()
 
 	// Log route registration
 	logging.GetLogger().RouteRegistered(string(ref.Method), ref.Path, "summary", ref.Summary)

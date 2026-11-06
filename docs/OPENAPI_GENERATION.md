@@ -50,7 +50,6 @@ handler, err := runtime.NewHandler(runtime.Config{
     EnableSwaggerUI: true,
     Servers:         []string{"https://api.example.com"},
     Validate:        true, // Validate spec before serving
-    CacheTTL:        5 * time.Minute, // Cache for 5 minutes
 })
 
 // Register with your framework
@@ -360,7 +359,7 @@ A named struct becomes the component `<last import-path element>_<Type>`: `User`
 GET /payslips: component name "models_Money" is used by both github.com/acme/billing/models.Money and github.com/acme/payroll/models.Money; rename one of the types
 ```
 
-Rename one type of each pair. `Builder.Build` returns this error, and the runtime handler answers the spec endpoint with it and status 500.
+Rename one type of each pair. `Builder.Build` returns this error. The runtime handler logs it, with `reason="OpenAPI document build failed"`, and answers the spec endpoint with a plain 500; under `RegisterEcho` the error goes to Echo's `HTTPErrorHandler` instead.
 
 ## Security Schemes
 
@@ -613,11 +612,16 @@ handler, _ := runtime.NewHandler(runtime.Config{
   run: apix spec-guard --existing docs/openapi.yaml
 ```
 
-### 7. Cache Runtime Specs
+### 7. Runtime Specs Are Built Once
+
+The runtime handler builds the document on the first request and keeps it, or
+the error that stopped the build, until a route or plugin is registered or
+removed. Set `CacheTTL` only when a plugin's `OnSpecBuild` output changes over
+time:
 
 ```go
 handler, _ := runtime.NewHandler(runtime.Config{
-    CacheTTL: 5 * time.Minute, // Cache for 5 minutes
+    CacheTTL: 5 * time.Minute, // Also rebuild the document every 5 minutes
 })
 ```
 

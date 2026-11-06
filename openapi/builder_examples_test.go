@@ -302,3 +302,40 @@ func TestParameterExamples(t *testing.T) {
 		t.Errorf("expected query example 'golang', got %v", queryParam.Example)
 	}
 }
+
+type BoolExamples struct {
+	Lower bool `json:"lower" example:"false"`
+	Upper bool `json:"upper" example:"TRUE"`
+	Other bool `json:"other" example:"yes"`
+}
+
+// TestBoolExamples: a bool example is read case-insensitively, and any value
+// but true or false stays the string it was written as.
+func TestBoolExamples(t *testing.T) {
+	apix.ResetRegistry()
+	t.Cleanup(apix.ResetRegistry)
+	apix.RegisterRoute(&apix.RouteRef{
+		Method:      apix.MethodPost,
+		Path:        "/flags",
+		RequestType: reflect.TypeOf(BoolExamples{}),
+		Responses:   map[int]*apix.ResponseRef{http.StatusNoContent: {}},
+	})
+
+	doc, err := openapi.NewBuilder().Build(apix.Snapshot())
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+	schema := doc.Components.Schemas["openapi_test_BoolExamples"]
+	if schema == nil || schema.Value == nil {
+		t.Fatal("BoolExamples schema not found")
+	}
+	for field, want := range map[string]any{"lower": false, "upper": true, "other": "yes"} {
+		prop := schema.Value.Properties[field]
+		if prop == nil || prop.Value == nil {
+			t.Fatalf("%s property not found", field)
+		}
+		if prop.Value.Example != want {
+			t.Errorf("%s example = %#v, want %#v", field, prop.Value.Example, want)
+		}
+	}
+}

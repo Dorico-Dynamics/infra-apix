@@ -5,14 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	apix "github.com/Infra-Forge/infra-apix"
+	"github.com/Infra-Forge/infra-apix/internal/errorhandler"
+	"github.com/Infra-Forge/infra-apix/internal/generation"
 	"github.com/Infra-Forge/infra-apix/openapi"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -40,8 +42,10 @@ type Config struct {
 	// 500 instead of serving an invalid one. Off unless set.
 	Validate bool
 
-	// CacheTTL controls how long the generated spec is cached before regeneration.
-	// Zero duration disables caching (generate per request).
+	// CacheTTL, when set, also rebuilds the document once it is this old. The
+	// handler builds the document on the first request and keeps it, or the
+	// error that stopped the build, until a route or plugin is registered or
+	// removed.
 	CacheTTL time.Duration
 
 	// SpecPath is the HTTP path serving the document. Default derived from format (/openapi.json).
@@ -51,20 +55,30 @@ type Config struct {
 	EnableSwaggerUI bool
 	SwaggerUIPath   string
 
-	// CustomizeBuilder allows additional tuning of the builder before building.
+	// CustomizeBuilder tunes the builder before each build.
 	CustomizeBuilder func(*openapi.Builder)
 }
 
-// Handler serves OpenAPI docs with optional caching and Swagger UI.
+// Handler serves the OpenAPI document, built once and kept until the routes or
+// plugins change, and an optional Swagger UI.
 type Handler struct {
-	cfg Config
+	cfg        Config
+	newBuilder func() *openapi.Builder
 
-	mu          sync.RWMutex
-	lastBuilt   time.Time
-	cachedBytes []byte
-	contentType string
+	// mu runs builds one at a time and guards built.
+	mu    sync.Mutex
+	built *builtDocument
+}
 
-	builderPool sync.Pool
+// builtDocument is the outcome of one build: the encoded document, or the
+// error that stopped it.
+type builtDocument struct {
+	// generation is the registries' change count the build started from.
+	generation uint64
+	at         time.Time
+	payload    []byte
+	ctype      string
+	err        error
 }
 
 // NewHandler returns a ready-to-use Handler.
@@ -90,7 +104,7 @@ func NewHandler(cfg Config) (*Handler, error) {
 	}
 
 	h := &Handler{cfg: cfg}
-	h.builderPool.New = func() any {
+	h.newBuilder = func() *openapi.Builder {
 		b := openapi.NewBuilder()
 		if cfg.Title != "" {
 			b.Info.Title = cfg.Title
@@ -115,12 +129,12 @@ func NewHandler(cfg Config) (*Handler, error) {
 }
 
 // securitySchemeCopier returns a function that decodes a fresh deep copy of
-// schemes for each pooled builder. Builders are created concurrently, and
-// CustomizeBuilder or a plugin may change a builder's schemes down to a
-// scheme's fields, so no two builders, and not the caller's Config, may share
-// a scheme object. The copy goes through the schemes' JSON form: a scheme's
-// Origin is dropped, and a $ref scheme keeps only its reference. NewHandler
-// fails for schemes that do not survive it, so later copies cannot fail.
+// schemes for each build's builder. CustomizeBuilder or a plugin may change a
+// builder's schemes down to a scheme's fields, so no two builds, and not the
+// caller's Config, may share a scheme object. The copy goes through the
+// schemes' JSON form: a scheme's Origin is dropped, and a $ref scheme keeps
+// only its reference. NewHandler fails for schemes that do not survive it, so
+// later copies cannot fail.
 func securitySchemeCopier(schemes openapi3.SecuritySchemes) (func() openapi3.SecuritySchemes, error) {
 	if len(schemes) == 0 {
 		return func() openapi3.SecuritySchemes { return nil }, nil
@@ -154,61 +168,93 @@ func (h *Handler) RegisterHTTP(mux *http.ServeMux) {
 	}
 }
 
-// RegisterEcho registers handlers on an echo server.
+// RegisterEcho registers handlers on an echo server. A document it cannot
+// build, validate or encode is returned as the error to Echo's
+// HTTPErrorHandler, as the Echo adapter does with an error without an HTTP
+// status, so apix does not log it. Echo's default HTTPErrorHandler answers
+// {"message":"Internal Server Error"}, adds the error's text only when Echo's
+// Debug is on, and does not log it. A response the client did not receive in
+// full is logged at Warn level, as under ServeHTTP, and its error is still
+// returned to Echo.
 func (h *Handler) RegisterEcho(e *echo.Echo) {
 	e.GET(h.cfg.SpecPath, func(c echo.Context) error {
 		payload, ctype, err := h.getSpec(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		return c.Blob(http.StatusOK, ctype, payload)
+		if err := c.Blob(http.StatusOK, ctype, payload); err != nil {
+			errorhandler.LogWriteFailed(c.Request(), "OpenAPI document write failed", err)
+			return err
+		}
+		return nil
 	})
 	if h.cfg.EnableSwaggerUI {
 		e.GET(h.cfg.SwaggerUIPath, func(c echo.Context) error {
-			return c.HTML(http.StatusOK, renderSwaggerUI(h.cfg.SpecPath))
+			if err := c.HTML(http.StatusOK, renderSwaggerUI(h.cfg.SpecPath)); err != nil {
+				errorhandler.LogWriteFailed(c.Request(), "Swagger UI write failed", err)
+				return err
+			}
+			return nil
 		})
 	}
 }
 
-// ServeHTTP implements http.Handler.
+// buildFailedReason is the reason attribute of the line logged for a document
+// the handler cannot build, validate or encode.
+const buildFailedReason = "OpenAPI document build failed"
+
+// ServeHTTP serves the document. A document it cannot build, validate or
+// encode is answered with a plain 500, and the error, which names routes,
+// types and schemes, is logged like the adapters' generic 500s (see
+// apix.SetLogger) instead of reaching the client.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	payload, ctype, err := h.getSpec(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		errorhandler.LogReplaced(r.Context(), errorhandler.RequestOf(r), err, slog.String("reason", buildFailedReason))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set(http.CanonicalHeaderKey("Content-Type"), ctype)
+	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Cache-Control", "no-store")
 	if _, err := w.Write(payload); err != nil {
-		// best effort logging
-		fmt.Fprintf(os.Stderr, "apix runtime: failed to write spec: %v\n", err)
+		errorhandler.LogWriteFailed(r, "OpenAPI document write failed", err)
 	}
 }
 
 func (h *Handler) swaggerUI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set(http.CanonicalHeaderKey("Content-Type"), "text/html; charset=utf-8")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if _, err := w.Write([]byte(renderSwaggerUI(h.cfg.SpecPath))); err != nil {
-		fmt.Fprintf(os.Stderr, "apix runtime: failed to write swagger ui: %v\n", err)
+		errorhandler.LogWriteFailed(r, "Swagger UI write failed", err)
 	}
 }
 
+// getSpec returns the encoded document. It builds it on the first request, and
+// again once a route or plugin has been registered or removed since, or once
+// it is CacheTTL old. A failed build is kept the same way. Builds run one at a
+// time, so concurrent first requests share one. Callers must not modify the
+// returned bytes: later requests receive the same slice.
 func (h *Handler) getSpec(ctx context.Context) ([]byte, string, error) {
-	h.mu.RLock()
-	if h.cfg.CacheTTL > 0 && !h.lastBuilt.IsZero() && time.Since(h.lastBuilt) < h.cfg.CacheTTL {
-		payload := append([]byte(nil), h.cachedBytes...)
-		ctype := h.contentType
-		h.mu.RUnlock()
-		return payload, ctype, nil
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	gen := generation.Current()
+	if d := h.built; d != nil && d.generation == gen && (h.cfg.CacheTTL <= 0 || time.Since(d.at) < h.cfg.CacheTTL) {
+		return d.payload, d.ctype, d.err
 	}
-	h.mu.RUnlock()
+	// The outcome serves later requests too, so this request's cancellation
+	// must not reach the build.
+	payload, ctype, err := h.build(context.WithoutCancel(ctx))
+	h.built = &builtDocument{generation: gen, at: time.Now(), payload: payload, ctype: ctype, err: err}
+	return payload, ctype, err
+}
 
-	b := h.builderPool.Get().(*openapi.Builder)
-	defer h.builderPool.Put(b)
-
+// build builds the document from the registered routes with a new builder,
+// validates it when Validate is set, and encodes it.
+func (h *Handler) build(ctx context.Context) ([]byte, string, error) {
 	routes := apix.Snapshot()
 	if len(routes) == 0 {
 		return nil, "", errors.New("no routes registered")
 	}
+	b := h.newBuilder()
 	// sort servers for deterministic output
 	sort.SliceStable(b.Servers, func(i, j int) bool { return b.Servers[i].URL < b.Servers[j].URL })
 
@@ -223,17 +269,7 @@ func (h *Handler) getSpec(ctx context.Context) ([]byte, string, error) {
 		}
 	}
 
-	data, ctype, err := openapi.EncodeDocument(doc, h.cfg.Format)
-	if err != nil {
-		return nil, "", err
-	}
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.cachedBytes = append(h.cachedBytes[:0], data...)
-	h.contentType = ctype
-	h.lastBuilt = time.Now()
-	return append([]byte(nil), data...), ctype, nil
+	return openapi.EncodeDocument(doc, h.cfg.Format)
 }
 
 func renderSwaggerUI(specPath string) string {
