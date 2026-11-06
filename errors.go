@@ -449,8 +449,9 @@ func NewProblemDetails(status int, title, detail string) *ProblemDetails {
 //
 // Example:
 //
-//	problem := apix.NewProblemDetails(403, "Out of credit", "Insufficient balance")
-//	problem.WithExtension("balance", 30).WithExtension("cost", 50)
+//	problem := apix.NewProblemDetails(403, "Out of credit", "Insufficient balance").
+//		WithExtension("balance", 30).
+//		WithExtension("cost", 50)
 func (p *ProblemDetails) WithExtension(key string, value any) *ProblemDetails {
 	if p.Extensions == nil {
 		p.Extensions = make(map[string]any)
