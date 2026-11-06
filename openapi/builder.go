@@ -158,10 +158,15 @@ func (b *Builder) addRoute(doc *openapi3.T, ref *apix.RouteRef) error {
 		op.Security = security
 	}
 
-	if bodyRef, err := b.buildRequestBody(ref); err != nil {
-		return err
-	} else if bodyRef != nil {
-		op.RequestBody = bodyRef
+	// GET and DELETE content has no defined semantics (RFC 9110 sections 9.3.1
+	// and 9.3.5), so a request type on them, which carries query or path
+	// values, is not documented as a request body.
+	if method := strings.ToUpper(string(ref.Method)); method != http.MethodGet && method != http.MethodDelete {
+		if bodyRef, err := b.buildRequestBody(ref); err != nil {
+			return err
+		} else if bodyRef != nil {
+			op.RequestBody = bodyRef
+		}
 	}
 
 	statusCodes := make([]int, 0, len(ref.Responses))
