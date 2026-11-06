@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -95,29 +96,64 @@ func TestUndeclaredSecuritySchemeAnswers500(t *testing.T) {
 	}
 }
 
+// customizeSchemes adds a scheme and edits a configured one, as a
+// CustomizeBuilder may.
+func customizeSchemes(b *openapi.Builder) {
+	addAPIKey(b)
+	b.SecuritySchemes["BearerAuth"].Value.Description += "edited once"
+}
+
 // TestConcurrentBuildsDoNotShareSecuritySchemes: each pooled builder gets its
-// own copy of the configured schemes, so a CustomizeBuilder that adds to them
-// does not race with builders created at the same time (run with -race).
+// own deep copy of the configured schemes. A CustomizeBuilder that adds a
+// scheme and edits a configured one runs once per builder, does not race with
+// builders created at the same time (run with -race), and leaves the caller's
+// schemes unchanged.
 func TestConcurrentBuildsDoNotShareSecuritySchemes(t *testing.T) {
 	registerSecuredRoute(t, "BearerAuth", "ApiKey")
-	schemes := openapi3.SecuritySchemes{"BearerAuth": {Value: openapi3.NewJWTSecurityScheme()}}
-	mux := specMux(t, runtime.Config{SecuritySchemes: schemes, CustomizeBuilder: addAPIKey})
+	bearer := openapi3.NewJWTSecurityScheme()
+	schemes := openapi3.SecuritySchemes{"BearerAuth": {Value: bearer}}
+	mux := specMux(t, runtime.Config{SecuritySchemes: schemes, CustomizeBuilder: customizeSchemes})
 
 	start := make(chan struct{})
-	codes := make(chan int, 8)
+	responses := make(chan *httptest.ResponseRecorder, 8)
 	var wg sync.WaitGroup
-	for range cap(codes) {
+	for range cap(responses) {
 		wg.Go(func() {
 			<-start
-			codes <- getSpec(mux).Code
+			responses <- getSpec(mux)
 		})
 	}
 	close(start)
 	wg.Wait()
-	close(codes)
-	for code := range codes {
-		if code != http.StatusOK {
-			t.Errorf("status = %d, want 200", code)
+	close(responses)
+	for resp := range responses {
+		var doc struct {
+			Components struct {
+				SecuritySchemes map[string]struct {
+					Description string `json:"description"`
+				} `json:"securitySchemes"`
+			} `json:"components"`
 		}
+		if err := json.Unmarshal(resp.Body.Bytes(), &doc); resp.Code != http.StatusOK || err != nil {
+			t.Fatalf("status = %d, decode error %v, body: %s", resp.Code, err, resp.Body)
+		}
+		if got := doc.Components.SecuritySchemes["BearerAuth"].Description; got != "edited once" {
+			t.Errorf("BearerAuth description = %q, want %q", got, "edited once")
+		}
+	}
+	if len(schemes) != 1 || bearer.Description != "" {
+		t.Errorf("the configured schemes changed: %d schemes, BearerAuth description %q", len(schemes), bearer.Description)
+	}
+}
+
+// TestNewHandlerRejectsSecuritySchemesThatDoNotEncode: each builder's copy goes
+// through JSON, so NewHandler fails for a scheme that cannot be encoded.
+func TestNewHandlerRejectsSecuritySchemesThatDoNotEncode(t *testing.T) {
+	scheme := openapi3.NewJWTSecurityScheme()
+	scheme.Extensions = map[string]any{"x-hook": func() {}}
+
+	_, err := runtime.NewHandler(runtime.Config{SecuritySchemes: openapi3.SecuritySchemes{"BearerAuth": {Value: scheme}}})
+	if err == nil || !strings.Contains(err.Error(), "encode security schemes") {
+		t.Fatalf("NewHandler error = %v, want an encode error", err)
 	}
 }
