@@ -347,7 +347,6 @@ handler, err := runtime.NewHandler(runtime.Config{
     EnableSwaggerUI: true,
     Servers:         []string{"https://api.example.com", "http://localhost:8080"},
     Validate:        true,
-    CacheTTL:        5 * time.Minute, // Cache for 5 minutes
 })
 if err != nil {
     log.Fatal(err)

@@ -585,8 +585,9 @@ type Config struct {
     // Validation
     Validate bool // Validate the spec on every build before serving (default: false)
 
-    // Caching
-    CacheTTL time.Duration // Cache spec for duration (0 = no cache)
+    // Caching: the document, or the error that stopped its build, is kept
+    // until a route or plugin is registered or removed
+    CacheTTL time.Duration // Also rebuild it once it is this old (0: never)
 
     // Paths
     SpecPath      string // Default: "/openapi.json", or "/openapi.yaml" for YAML
@@ -626,7 +627,6 @@ handler, err := runtime.NewHandler(runtime.Config{
     Format:          "json",
     EnableSwaggerUI: true,
     Servers:         []string{"https://api.example.com"},
-    CacheTTL:        5 * time.Minute,
     SecuritySchemes: openapi3.SecuritySchemes{
         "BearerAuth": &openapi3.SecuritySchemeRef{
             Value: openapi3.NewJWTSecurityScheme(),
