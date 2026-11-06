@@ -63,7 +63,9 @@ func HandleError(w http.ResponseWriter, r *http.Request, err error, useProblemDe
 		if data, marshalErr := json.Marshal(apix.ToProblemDetails(err)); marshalErr == nil {
 			w.Header().Set("Content-Type", "application/problem+json")
 			w.WriteHeader(status)
-			w.Write(data)
+			if _, writeErr := w.Write(data); writeErr != nil {
+				LogWriteFailed(r, "error response write failed", writeErr)
+			}
 			return
 		}
 	}
@@ -109,4 +111,12 @@ func LogReplaced(ctx context.Context, req Request, err error, attrs ...slog.Attr
 	attrs = append(attrs, req.Attrs()...)
 	attrs = append(attrs, slog.Any("error", err))
 	logging.ErrorLogger().LogAttrs(ctx, slog.LevelError, "error answered with a generic 500", attrs...)
+}
+
+// LogWriteFailed logs a response the client did not receive in full, which
+// usually means it went away. Like apix's other library events, it goes only
+// to a logger passed to apix.SetLogger, at Warn level.
+func LogWriteFailed(r *http.Request, msg string, err error) {
+	attrs := append(RequestOf(r).Attrs(), slog.Any("error", err))
+	logging.GetLogger().LogAttrs(r.Context(), slog.LevelWarn, msg, attrs...)
 }

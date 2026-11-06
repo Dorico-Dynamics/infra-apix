@@ -531,8 +531,8 @@ handler instead.
 
 These lines go to `slog.Default()` unless you pass your own logger. That logger
 also receives route registration, schema generation and document builds, at
-Info and Debug level, and a runtime handler response the client did not
-receive in full, at Warn level:
+Info and Debug level, and a runtime handler response or a chi or mux
+problem+json error the client did not receive in full, at Warn level:
 
 ```go
 apix.SetLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
