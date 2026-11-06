@@ -64,6 +64,9 @@ func TestGoldenCRUDSpec(t *testing.T) {
 		Security: []apix.SecurityRequirement{
 			{Name: "BearerAuth", Scopes: []string{"users:write"}},
 		},
+		SuccessHeaders: map[int][]apix.HeaderRef{
+			http.StatusCreated: {{Name: "Location", Description: "URI of the created user", SchemaType: "string", Required: true}},
+		},
 	})
 
 	apix.RegisterRoute(&apix.RouteRef{
@@ -186,10 +189,10 @@ func TestGoldenCRUDSpec(t *testing.T) {
 		t.Error("expected 403 response for secured endpoint")
 	}
 
-	// Validate Location header on 201
+	// Validate the Location header the route declares on 201
 	created := postPath.Post.Responses.Status(http.StatusCreated)
-	if created.Value.Headers == nil || created.Value.Headers["Location"] == nil {
-		t.Error("expected Location header on 201 response")
+	if location := created.Value.Headers["Location"]; location == nil || !location.Value.Required {
+		t.Error("expected the declared, required Location header on 201 response")
 	}
 
 	// Validate GET /api/users/{id}

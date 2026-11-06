@@ -158,10 +158,15 @@ func (b *Builder) addRoute(doc *openapi3.T, ref *apix.RouteRef) error {
 		op.Security = security
 	}
 
-	if bodyRef, err := b.buildRequestBody(ref); err != nil {
-		return err
-	} else if bodyRef != nil {
-		op.RequestBody = bodyRef
+	// GET and DELETE content has no defined semantics (RFC 9110 sections 9.3.1
+	// and 9.3.5), so a request type on them, which carries query or path
+	// values, is not documented as a request body.
+	if method := strings.ToUpper(string(ref.Method)); method != http.MethodGet && method != http.MethodDelete {
+		if bodyRef, err := b.buildRequestBody(ref); err != nil {
+			return err
+		} else if bodyRef != nil {
+			op.RequestBody = bodyRef
+		}
 	}
 
 	statusCodes := make([]int, 0, len(ref.Responses))
@@ -176,7 +181,13 @@ func (b *Builder) addRoute(doc *openapi3.T, ref *apix.RouteRef) error {
 		if err != nil {
 			return err
 		}
+		for _, hdr := range ref.SuccessHeaders[status] {
+			oaResp.Headers[hdr.Name] = headerRef(hdr)
+		}
 		op.AddResponse(status, oaResp)
+	}
+	if err := checkSuccessHeaders(ref); err != nil {
+		return err
 	}
 
 	addDXDefaults(ref, op)
@@ -264,20 +275,7 @@ func (b *Builder) buildResponse(status int, ref *apix.ResponseRef) (*openapi3.Re
 	}
 
 	for _, hdr := range ref.Headers {
-		headerSchema := &openapi3.Schema{}
-		schemaType(headerSchema, hdr.SchemaType)
-		if headerSchema.Type == nil || len(*headerSchema.Type) == 0 {
-			schemaType(headerSchema, "string")
-		}
-		resp.Headers[hdr.Name] = &openapi3.HeaderRef{
-			Value: &openapi3.Header{
-				Parameter: openapi3.Parameter{
-					Description: hdr.Description,
-					Required:    hdr.Required,
-					Schema:      &openapi3.SchemaRef{Value: headerSchema},
-				},
-			},
-		}
+		resp.Headers[hdr.Name] = headerRef(hdr)
 	}
 
 	return resp, nil
@@ -627,27 +625,23 @@ func headerRef(h apix.HeaderRef) *openapi3.HeaderRef {
 	return &openapi3.HeaderRef{Value: header}
 }
 
-func addDXDefaults(ref *apix.RouteRef, op *openapi3.Operation) {
-	if ref.Method == apix.MethodPost {
-		resp := op.Responses.Status(http.StatusCreated)
-		if resp != nil && resp.Value != nil {
-			if resp.Value.Headers == nil {
-				resp.Value.Headers = openapi3.Headers{}
-			}
-			if _, ok := resp.Value.Headers["Location"]; !ok {
-				description := "URI of the newly created resource"
-				header := &openapi3.Header{}
-				header.Description = description
-				header.Required = true
-				schema := &openapi3.Schema{}
-				schemaType(schema, "string")
-				schema.Format = "uri"
-				header.Schema = &openapi3.SchemaRef{Value: schema}
-				resp.Value.Headers["Location"] = &openapi3.HeaderRef{Value: header}
-			}
+// checkSuccessHeaders fails for headers declared with WithSuccessHeaders on a
+// status the route has no response for, which would otherwise be dropped.
+func checkSuccessHeaders(ref *apix.RouteRef) error {
+	statuses := make([]int, 0, len(ref.SuccessHeaders))
+	for status, headers := range ref.SuccessHeaders {
+		if _, ok := ref.Responses[status]; !ok && len(headers) > 0 {
+			statuses = append(statuses, status)
 		}
 	}
+	if len(statuses) == 0 {
+		return nil
+	}
+	sort.Ints(statuses)
+	return fmt.Errorf("%s %s: WithSuccessHeaders(%d, ...) names a status the route has no response for", ref.Method, ref.Path, statuses[0])
+}
 
+func addDXDefaults(ref *apix.RouteRef, op *openapi3.Operation) {
 	if len(ref.Security) > 0 {
 		ensureResponse(op, http.StatusUnauthorized, "Unauthorized")
 		ensureResponse(op, http.StatusForbidden, "Forbidden")
