@@ -381,16 +381,15 @@ func main() {
 		Format:          "json",
 		Servers:         []string{"https://api.infranotes.com", "http://localhost:8080"},
 		EnableSwaggerUI: true,
+		// Every scheme the routes name with apix.WithSecurity must be declared
+		SecuritySchemes: openapi3.SecuritySchemes{
+			"BearerAuth": &openapi3.SecuritySchemeRef{
+				Value: openapi3.NewJWTSecurityScheme(),
+			},
+		},
 		CustomizeBuilder: func(b *openapi.Builder) {
 			// Add description
 			b.Info.Description = "Production-grade financial analytics and document processing API built with apix"
-
-			// Add security schemes
-			b.SecuritySchemes = openapi3.SecuritySchemes{
-				"BearerAuth": &openapi3.SecuritySchemeRef{
-					Value: openapi3.NewJWTSecurityScheme(),
-				},
-			}
 
 			// Add contact info
 			b.Info.Contact = &openapi3.Contact{

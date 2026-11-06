@@ -146,12 +146,11 @@ type TransactionModel struct {
 
 ```go
 handler, _ := runtime.NewHandler(runtime.Config{
-    CustomizeBuilder: func(b *openapi.Builder) {
-        b.SecuritySchemes = openapi3.SecuritySchemes{
-            "BearerAuth": &openapi3.SecuritySchemeRef{
-                Value: openapi3.NewJWTSecurityScheme(),
-            },
-        }
+    // Every scheme the routes name with apix.WithSecurity must be declared
+    SecuritySchemes: openapi3.SecuritySchemes{
+        "BearerAuth": &openapi3.SecuritySchemeRef{
+            Value: openapi3.NewJWTSecurityScheme(),
+        },
     },
 })
 ```
