@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"sort"
@@ -28,6 +29,12 @@ type Config struct {
 
 	// Servers are applied to the generated document.
 	Servers []string
+
+	// SecuritySchemes become the document's components.securitySchemes, such
+	// as the BearerAuth that routes name with apix.WithSecurity. The build
+	// fails for a scheme a route names but nothing declares. CustomizeBuilder
+	// runs afterwards and can change them.
+	SecuritySchemes openapi3.SecuritySchemes
 
 	// Validate checks the document with kin-openapi on every build and answers
 	// 500 instead of serving an invalid one. Off unless set.
@@ -93,6 +100,9 @@ func NewHandler(cfg Config) (*Handler, error) {
 			}
 			b.Servers = append(b.Servers, &openapi3.Server{URL: srv})
 		}
+		// Each pooled builder gets its own map: the document shares it, and a
+		// plugin may add to it while another builder is building.
+		b.SecuritySchemes = maps.Clone(cfg.SecuritySchemes)
 		if cfg.CustomizeBuilder != nil {
 			cfg.CustomizeBuilder(b)
 		}
