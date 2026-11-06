@@ -209,8 +209,8 @@ func TestRunGenerateStdout(t *testing.T) {
 	}
 	os.Stdout = old
 	output := buf.String()
-	if !strings.Contains(output, doNotEditHeader) {
-		t.Fatalf("expected header in stdout output")
+	if !strings.HasPrefix(output, doNotEditHeader+"\n{") {
+		t.Fatalf("expected the header line, then the document, got %.120q", output)
 	}
 	if !strings.Contains(output, "/") {
 		t.Fatalf("expected spec content in stdout output")
