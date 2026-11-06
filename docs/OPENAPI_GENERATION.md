@@ -360,7 +360,7 @@ A named struct becomes the component `<last import-path element>_<Type>`: `User`
 GET /payslips: component name "models_Money" is used by both github.com/acme/billing/models.Money and github.com/acme/payroll/models.Money; rename one of the types
 ```
 
-Rename one type of each pair. `Builder.Build` returns this error, and the runtime handler answers the spec endpoint with it and status 500.
+Rename one type of each pair. `Builder.Build` returns this error. The runtime handler logs it, with `reason="OpenAPI document build failed"`, and answers the spec endpoint with a plain 500; under `RegisterEcho` the error goes to Echo's `HTTPErrorHandler` instead.
 
 ## Security Schemes
 
