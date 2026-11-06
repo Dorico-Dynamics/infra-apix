@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	apix "github.com/Infra-Forge/infra-apix"
+	"github.com/Infra-Forge/infra-apix/internal/errorhandler"
 	"github.com/Infra-Forge/infra-apix/openapi"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -154,7 +156,12 @@ func (h *Handler) RegisterHTTP(mux *http.ServeMux) {
 	}
 }
 
-// RegisterEcho registers handlers on an echo server.
+// RegisterEcho registers handlers on an echo server. A document it cannot
+// build, validate or encode is returned as the error to Echo's
+// HTTPErrorHandler, as the Echo adapter does with an error without an HTTP
+// status, so apix does not log it. Echo's default HTTPErrorHandler answers
+// {"message":"Internal Server Error"}, adds the error's text only when Echo's
+// Debug is on, and does not log it.
 func (h *Handler) RegisterEcho(e *echo.Echo) {
 	e.GET(h.cfg.SpecPath, func(c echo.Context) error {
 		payload, ctype, err := h.getSpec(c.Request().Context())
@@ -170,11 +177,19 @@ func (h *Handler) RegisterEcho(e *echo.Echo) {
 	}
 }
 
-// ServeHTTP implements http.Handler.
+// buildFailedReason is the reason attribute of the line logged for a document
+// the handler cannot build, validate or encode.
+const buildFailedReason = "OpenAPI document build failed"
+
+// ServeHTTP serves the document. A document it cannot build, validate or
+// encode is answered with a plain 500, and the error, which names routes,
+// types and schemes, is logged like the adapters' generic 500s (see
+// apix.SetLogger) instead of reaching the client.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	payload, ctype, err := h.getSpec(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		errorhandler.LogReplaced(r.Context(), errorhandler.RequestOf(r), err, slog.String("reason", buildFailedReason))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set(http.CanonicalHeaderKey("Content-Type"), ctype)
