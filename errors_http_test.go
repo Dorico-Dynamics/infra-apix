@@ -300,8 +300,7 @@ func TestProblemDetailsWithExtensions(t *testing.T) {
 		http.StatusForbidden,
 		"Out of Credit",
 		"Your balance is insufficient.",
-	)
-	problem.WithExtension("balance", 30).WithExtension("cost", 50)
+	).WithExtension("balance", 30).WithExtension("cost", 50)
 
 	data, err := problem.MarshalJSON()
 	if err != nil {
@@ -349,16 +348,15 @@ func TestProblemDetailsReservedExtensionKeys(t *testing.T) {
 		http.StatusBadRequest,
 		"Bad Request",
 		"Invalid input provided",
-	)
-
-	// Try to overwrite reserved fields via extensions
-	problem.WithExtension("type", "https://malicious.com/override")
-	problem.WithExtension("title", "Malicious Title")
-	problem.WithExtension("status", 999)
-	problem.WithExtension("detail", "Malicious Detail")
-	problem.WithExtension("instance", "/malicious/path")
-	// Add a valid extension to verify non-reserved keys still work
-	problem.WithExtension("custom_field", "valid value")
+	).
+		// Try to overwrite reserved fields via extensions
+		WithExtension("type", "https://malicious.com/override").
+		WithExtension("title", "Malicious Title").
+		WithExtension("status", 999).
+		WithExtension("detail", "Malicious Detail").
+		WithExtension("instance", "/malicious/path").
+		// Add a valid extension to verify non-reserved keys still work
+		WithExtension("custom_field", "valid value")
 
 	data, err := problem.MarshalJSON()
 	if err != nil {
