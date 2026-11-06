@@ -15,7 +15,6 @@ import (
 	apix "github.com/Infra-Forge/infra-apix"
 	"github.com/Infra-Forge/infra-apix/internal/errorhandler"
 	"github.com/Infra-Forge/infra-apix/internal/generation"
-	"github.com/Infra-Forge/infra-apix/internal/logging"
 	"github.com/Infra-Forge/infra-apix/openapi"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -184,7 +183,7 @@ func (h *Handler) RegisterEcho(e *echo.Echo) {
 			return err
 		}
 		if err := c.Blob(http.StatusOK, ctype, payload); err != nil {
-			logWriteFailed(c.Request(), "OpenAPI document write failed", err)
+			errorhandler.LogWriteFailed(c.Request(), "OpenAPI document write failed", err)
 			return err
 		}
 		return nil
@@ -192,7 +191,7 @@ func (h *Handler) RegisterEcho(e *echo.Echo) {
 	if h.cfg.EnableSwaggerUI {
 		e.GET(h.cfg.SwaggerUIPath, func(c echo.Context) error {
 			if err := c.HTML(http.StatusOK, renderSwaggerUI(h.cfg.SpecPath)); err != nil {
-				logWriteFailed(c.Request(), "Swagger UI write failed", err)
+				errorhandler.LogWriteFailed(c.Request(), "Swagger UI write failed", err)
 				return err
 			}
 			return nil
@@ -215,26 +214,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set(http.CanonicalHeaderKey("Content-Type"), ctype)
+	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Cache-Control", "no-store")
 	if _, err := w.Write(payload); err != nil {
-		logWriteFailed(r, "OpenAPI document write failed", err)
+		errorhandler.LogWriteFailed(r, "OpenAPI document write failed", err)
 	}
 }
 
 func (h *Handler) swaggerUI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set(http.CanonicalHeaderKey("Content-Type"), "text/html; charset=utf-8")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if _, err := w.Write([]byte(renderSwaggerUI(h.cfg.SpecPath))); err != nil {
-		logWriteFailed(r, "Swagger UI write failed", err)
+		errorhandler.LogWriteFailed(r, "Swagger UI write failed", err)
 	}
-}
-
-// logWriteFailed logs a response the client did not receive in full, which
-// usually means it went away. Like apix's other library events, it goes only
-// to a logger passed to apix.SetLogger, at Warn level.
-func logWriteFailed(r *http.Request, msg string, err error) {
-	attrs := append(errorhandler.RequestOf(r).Attrs(), slog.Any("error", err))
-	logging.GetLogger().LogAttrs(r.Context(), slog.LevelWarn, msg, attrs...)
 }
 
 // getSpec returns the encoded document. It builds it on the first request, and

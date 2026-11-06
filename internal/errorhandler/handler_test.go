@@ -313,3 +313,35 @@ func (h *contextRecorder) Handle(ctx context.Context, r slog.Record) error {
 	h.ctx = ctx
 	return h.Handler.Handle(ctx, r)
 }
+
+// failingWriter is a ResponseWriter whose client went away.
+type failingWriter struct{ *httptest.ResponseRecorder }
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write: broken pipe") }
+
+// TestAFailedErrorWriteIsLoggedAtWarn: a problem+json error the client did not
+// receive in full is a library event. It goes to the logger passed to
+// apix.SetLogger at Warn level, with the request's ids.
+func TestAFailedErrorWriteIsLoggedAtWarn(t *testing.T) {
+	var lines bytes.Buffer
+	logging.Configure(slog.New(slog.NewJSONHandler(&lines, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { logging.Configure(nil) })
+
+	r := httptest.NewRequest("GET", "/ledger", nil)
+	r.Header.Set("X-Request-ID", "req-1")
+	r.Header.Set("X-Correlation-ID", "corr-1")
+	HandleError(failingWriter{httptest.NewRecorder()}, r, apix.NotFound("no such ledger"), true)
+
+	var line map[string]any
+	if err := json.Unmarshal(lines.Bytes(), &line); err != nil {
+		t.Fatalf("want one JSON line, got %q: %v", lines.String(), err)
+	}
+	delete(line, "time")
+	want := map[string]any{
+		"level": "WARN", "msg": "error response write failed", "method": "GET", "path": "/ledger",
+		"request_id": "req-1", "correlation_id": "corr-1", "error": "write: broken pipe",
+	}
+	if !reflect.DeepEqual(line, want) {
+		t.Errorf("line = %v, want %v", line, want)
+	}
+}
