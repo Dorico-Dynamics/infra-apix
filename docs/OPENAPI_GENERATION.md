@@ -352,6 +352,16 @@ type User struct {
 
 **Note:** Enum values are not automatically detected. Use description tags to document valid values.
 
+### Component Names
+
+A named struct becomes the component `<last import-path element>_<Type>`: `User` in `github.com/acme/billing/models` is `models_User`. Two types whose package names and type names match map to the same component, so the build fails and lists every such pair:
+
+```text
+GET /payslips: component name "models_Money" is used by both github.com/acme/billing/models.Money and github.com/acme/payroll/models.Money; rename one of the types
+```
+
+Rename one type of each pair. `Builder.Build` returns this error, and the runtime handler answers the spec endpoint with it and status 500.
+
 ## Security Schemes
 
 ### Defining Security Schemes

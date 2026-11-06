@@ -1,6 +1,7 @@
 package openapi
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -23,6 +24,11 @@ type Builder struct {
 
 	doc         *openapi3.T
 	schemaCache map[reflect.Type]*openapi3.SchemaRef
+	// componentTypes records the Go type that took each component name first.
+	componentTypes map[string]reflect.Type
+	// collisions holds one error per type that maps to a name another type
+	// took. Build fails with all of them rather than overwriting the component.
+	collisions []error
 }
 
 func NewBuilder() *Builder {
@@ -34,7 +40,8 @@ func NewBuilder() *Builder {
 	}
 }
 
-// Build transforms the route registry snapshot into an OpenAPI document.
+// Build transforms the route registry snapshot into an OpenAPI document. It
+// fails, naming every pair, when two Go types map to one component name.
 func (b *Builder) Build(routes []*apix.RouteRef) (*openapi3.T, error) {
 	paths := openapi3.NewPaths()
 	components := &openapi3.Components{
@@ -56,15 +63,25 @@ func (b *Builder) Build(routes []*apix.RouteRef) (*openapi3.T, error) {
 
 	b.doc = doc
 	b.schemaCache = make(map[reflect.Type]*openapi3.SchemaRef)
+	b.componentTypes = make(map[string]reflect.Type)
 	defer func() {
 		b.doc = nil
 		b.schemaCache = nil
+		b.componentTypes = nil
+		b.collisions = nil
 	}()
 
 	for _, route := range routes {
+		reported := len(b.collisions)
 		if err := b.addRoute(doc, route); err != nil {
 			return nil, err
 		}
+		for i := reported; i < len(b.collisions); i++ {
+			b.collisions[i] = fmt.Errorf("%s %s: %w", route.Method, route.Path, b.collisions[i])
+		}
+	}
+	if len(b.collisions) > 0 {
+		return nil, errors.Join(b.collisions...)
 	}
 
 	sortPaths(doc.Paths)
@@ -395,6 +412,17 @@ func (b *Builder) buildStructSchema(t reflect.Type) (*openapi3.SchemaRef, error)
 	name := componentName(t)
 
 	if name != "" {
+		// Names keep only the last import-path element, so a/models.Money and
+		// b/models.Money share "models_Money". The schema cache sends each type
+		// here once, so a taken name means a second type. Building goes on so
+		// that one failed Build names every such type.
+		if owner, taken := b.componentTypes[name]; taken {
+			b.collisions = append(b.collisions, fmt.Errorf("component name %q is used by both %s and %s; rename one of the types",
+				name, qualifiedTypeName(owner), qualifiedTypeName(t)))
+		} else {
+			b.componentTypes[name] = t
+		}
+
 		schema := openapi3.NewObjectSchema()
 		schema.Properties = make(map[string]*openapi3.SchemaRef)
 		schema.Required = []string{}
@@ -722,6 +750,12 @@ func componentName(t reflect.Type) string {
 	parts := strings.Split(pkg, "/")
 	pkgPart := parts[len(parts)-1]
 	return sanitizeComponentName(pkgPart + "_" + t.Name())
+}
+
+// qualifiedTypeName names a defined type by its full import path, which tells
+// apart types that share a component name.
+func qualifiedTypeName(t reflect.Type) string {
+	return t.PkgPath() + "." + t.Name()
 }
 
 func sanitizeComponentName(name string) string {
