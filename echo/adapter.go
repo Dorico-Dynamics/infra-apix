@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	apix "github.com/Infra-Forge/infra-apix"
+	"github.com/Infra-Forge/infra-apix/internal/errorhandler"
 	"github.com/Infra-Forge/infra-apix/internal/requestbody"
 	"github.com/labstack/echo/v4"
 )
@@ -128,14 +129,14 @@ func buildEchoHandler[TReq any, TResp any](a *EchoAdapter, handler apix.HandlerF
 		if ref.RequestType != nil {
 			reqVal := new(TReq)
 			if err := a.decode(ctx, c, reqVal); err != nil {
-				return a.transformError(err)
+				return a.transformError(c, err)
 			}
 			reqPtr = reqVal
 		}
 
 		resp, err := handler(ctx, reqPtr)
 		if err != nil {
-			return a.transformError(err)
+			return a.transformError(c, err)
 		}
 
 		return a.encode(ctx, c, ref.SuccessStatus, resp, ref)
@@ -156,31 +157,33 @@ func (a *EchoAdapter) encode(ctx context.Context, c echo.Context, status int, pa
 	return defaultEncoder(ctx, c, status, payload)
 }
 
-func (a *EchoAdapter) transformError(err error) error {
+func (a *EchoAdapter) transformError(c echo.Context, err error) error {
 	if err == nil {
 		return nil
 	}
 	if tr := a.opts.ErrorHandler; tr != nil {
 		return tr(err)
 	}
-	return defaultErrorTransformer(err, a.opts.UseProblemDetails)
+	return defaultErrorTransformer(c, err, a.opts.UseProblemDetails)
 }
 
 // defaultErrorTransformer converts apix errors to Echo HTTPError format.
 // If useProblemDetails is true, wraps the error with ProblemDetails metadata.
-func defaultErrorTransformer(err error, useProblemDetails bool) error {
+func defaultErrorTransformer(c echo.Context, err error, useProblemDetails bool) error {
 	// Check for StatusCoder interface (new pattern)
 	var statusCoder apix.StatusCoder
-	if errors.As(err, &statusCoder) {
-		// If Problem Details is enabled, wrap with ProblemDetails
-		// Echo will handle the serialization via custom error handler
-		if useProblemDetails {
-			return apix.ToProblemDetails(err)
-		}
-		return echo.NewHTTPError(statusCoder.HTTPStatus(), err.Error())
+	if !errors.As(err, &statusCoder) {
+		// Return error as-is for Echo's default error handler
+		return err
 	}
-	// Return error as-is for Echo's default error handler
-	return err
+	// A status outside 4xx and 5xx is logged and replaced by a generic 500.
+	status, err := errorhandler.Resolve(c.Request().Context(), errorhandler.RequestOf(c.Request()), err)
+	// If Problem Details is enabled, wrap with ProblemDetails
+	// Echo will handle the serialization via custom error handler
+	if useProblemDetails {
+		return apix.ToProblemDetails(err)
+	}
+	return echo.NewHTTPError(status, err.Error())
 }
 
 func defaultDecoder(ctx context.Context, c echo.Context, dst any) error {
@@ -234,10 +237,13 @@ func ProblemDetailsErrorHandler(fallback echo.HTTPErrorHandler) echo.HTTPErrorHa
 		// Check if this is a ProblemDetails error
 		var problem *apix.ProblemDetails
 		if errors.As(err, &problem) {
+			// A problem without a 4xx or 5xx status is logged and replaced by
+			// a generic 500; WriteHeader panics on a status such as 0.
+			status, sent := errorhandler.Resolve(c.Request().Context(), errorhandler.RequestOf(c.Request()), problem)
 			// Serialize as RFC 9457
 			c.Response().Header().Set("Content-Type", "application/problem+json")
-			c.Response().WriteHeader(problem.HTTPStatus())
-			if encErr := json.NewEncoder(c.Response()).Encode(problem); encErr != nil {
+			c.Response().WriteHeader(status)
+			if encErr := json.NewEncoder(c.Response()).Encode(apix.ToProblemDetails(sent)); encErr != nil {
 				// Log encoding error if available
 				c.Logger().Errorf("failed to encode problem details: %v", encErr)
 			}
@@ -250,21 +256,14 @@ func ProblemDetailsErrorHandler(fallback echo.HTTPErrorHandler) echo.HTTPErrorHa
 			return
 		}
 
-		// No fallback provided - create a safe default Problem Details response
-		// Log the original error server-side for debugging
-		c.Logger().Errorf("unhandled error (no fallback): %v", err)
-
-		// Return generic message to client (don't leak internal error details)
-		defaultProblem := &apix.ProblemDetails{
-			Status: http.StatusInternalServerError,
-			Title:  "Internal Server Error",
-			Detail: "An internal error occurred",
-		}
+		// No fallback: answer like the other adapters. An error without a 4xx
+		// or 5xx status is logged and replaced by a generic 500, so its text
+		// stays server-side.
+		status, sent := errorhandler.Resolve(c.Request().Context(), errorhandler.RequestOf(c.Request()), err)
 		c.Response().Header().Set("Content-Type", "application/problem+json")
-		c.Response().WriteHeader(http.StatusInternalServerError)
-		if encErr := json.NewEncoder(c.Response()).Encode(defaultProblem); encErr != nil {
-			// Last resort: log the error and ensure status is set
-			c.Logger().Errorf("failed to encode default problem details: %v", encErr)
+		c.Response().WriteHeader(status)
+		if encErr := json.NewEncoder(c.Response()).Encode(apix.ToProblemDetails(sent)); encErr != nil {
+			c.Logger().Errorf("failed to encode problem details: %v", encErr)
 		}
 	}
 }

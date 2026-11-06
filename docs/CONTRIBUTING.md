@@ -173,6 +173,8 @@ footer (optional)
 - `style`: Code style changes (formatting, etc.)
 - `refactor`: Code refactoring
 - `test`: Adding or updating tests
+- `ci`: CI and release workflows
+- `build`: Toolchain and dependencies
 - `chore`: Maintenance tasks
 
 **Examples:**
@@ -426,11 +428,21 @@ Releases are automated via GitHub Actions using semantic versioning.
 
 ### Version Bumping
 
-Versions are determined by commit messages:
+Each merge to `main` releases at most one version, with the largest bump that
+any commit since the last tag calls for. Scopes count: `fix(openapi): …` is a
+fix. Only plain `vMAJOR.MINOR.PATCH` tags count as the last tag; pre-release
+and build tags such as `v1.7.0-rc.1` or `v1.7.0+meta` are skipped.
 
-- `feat:` → Minor version bump (v0.2.0 → v0.3.0)
-- `fix:` → Patch version bump (v0.2.0 → v0.2.1)
-- `BREAKING CHANGE:` → Major version bump (v0.2.0 → v1.0.0)
+- `feat!:` (any type with `!`) or a `BREAKING CHANGE:` footer → major. From v1
+  on, the module path in `go.mod` must already end in the new `/vN`; otherwise
+  the release fails instead of tagging a version Go cannot fetch.
+- `feat:` → minor (v1.6.10 → v1.7.0)
+- `fix:` → patch (v1.6.10 → v1.6.11)
+- Any other type → no release.
+
+Releases run one at a time. Merges that land while a release runs are released
+together by the next run. The rules live in `.github/scripts/next-version.sh`,
+and `next-version_test.sh` beside it covers them.
 
 ### Release Workflow
 

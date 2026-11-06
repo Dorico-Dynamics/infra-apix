@@ -2,7 +2,6 @@ package gin
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"reflect"
 
@@ -187,14 +186,9 @@ func defaultEncoder(ctx context.Context, c *gin.Context, status int, payload any
 }
 
 func defaultErrorHandler(ctx context.Context, c *gin.Context, err error, useProblemDetails bool) {
-	// An error without an HTTP status is logged, and the client gets a generic 500.
-	var statusCoder apix.StatusCoder
-	if !errors.As(err, &statusCoder) {
-		errorhandler.LogUnhandled(c.Request.Method, c.Request.URL.Path, err)
-		statusCoder = errorhandler.InternalError()
-		err = statusCoder
-	}
-	status := statusCoder.HTTPStatus()
+	// An error without a 4xx or 5xx status is logged, and the client gets a
+	// generic 500.
+	status, err := errorhandler.Resolve(ctx, errorhandler.RequestOf(c.Request), err)
 
 	// If Problem Details is enabled, serialize as RFC 9457
 	if useProblemDetails {
