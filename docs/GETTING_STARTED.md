@@ -15,7 +15,7 @@ Complete guide to get started with `apix` for OpenAPI 3.1 generation in Go.
 
 ## Prerequisites
 
-- Go 1.25 or later
+- Go 1.27.3 or later
 - Basic understanding of Go and REST APIs
 - Familiarity with one of the supported frameworks:
   - Echo
@@ -422,7 +422,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.27'
       
       - name: Run tests
         run: go test ./...
