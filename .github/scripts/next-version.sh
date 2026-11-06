@@ -20,7 +20,16 @@ if [[ $# -ne 1 ]]; then
 	exit 2
 fi
 latest=$1
-IFS=. read -r major minor patch <<<"${latest#v}"
+# Only plain vMAJOR.MINOR.PATCH tags count: a suffix such as -rc.1 would reach
+# the arithmetic below, and a leading zero would be read as octal.
+version_re='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+if [[ ! $latest =~ $version_re ]]; then
+	echo "unsupported tag $latest: releases count from vMAJOR.MINOR.PATCH tags" >&2
+	exit 2
+fi
+major=${BASH_REMATCH[1]}
+minor=${BASH_REMATCH[2]}
+patch=${BASH_REMATCH[3]}
 
 header_re='^([a-z]+)(\([^()]*\))?(!)?: '
 breaking_footer_re='^BREAKING[ -]CHANGE: '

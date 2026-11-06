@@ -124,7 +124,8 @@ jobs:
       - name: Get latest tag
         id: latest_tag
         run: |
-          latest_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*')
+          # Pre-release (-rc.1) and build (+meta) tags are not release points.
+          latest_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude '*-*' --exclude '*+*')
           echo "latest_tag=${latest_tag}" >> "$GITHUB_OUTPUT"
 
       - name: Generate changelog

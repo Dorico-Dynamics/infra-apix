@@ -60,6 +60,25 @@ check footer-on-v1 "$v1" "error: has no /v2" $'fix: a\n\nBREAKING CHANGE: b'
 check hyphen-footer-on-v1 "$v1" "error: has no /v2" $'feat: a\n\nBREAKING-CHANGE: b'
 check breaking-on-v2-path "$v1/v2" v2.0.0 "fix: a" "feat!: b"
 
+# reject <tag>: next-version.sh refuses <tag> before reading any commit.
+reject() {
+	local out
+	if out=$("$script" "$1" 2>&1); then
+		echo "FAIL tag $1: accepted, output \"$out\""
+		failures=$((failures + 1))
+	elif [[ $out != *"unsupported tag $1"* ]]; then
+		echo "FAIL tag $1: output \"$out\""
+		failures=$((failures + 1))
+	else
+		echo "ok   tag $1 refused"
+	fi
+}
+
+reject v1.7.0-rc.1
+reject v1.6.10+build.5
+reject 1.6.10
+reject v1.06.0
+
 if out=$("$script" 2>&1); then
 	echo "FAIL usage: exit 0 without a tag"
 	failures=$((failures + 1))

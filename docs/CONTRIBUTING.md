@@ -430,7 +430,8 @@ Releases are automated via GitHub Actions using semantic versioning.
 
 Each merge to `main` releases at most one version, with the largest bump that
 any commit since the last tag calls for. Scopes count: `fix(openapi): …` is a
-fix.
+fix. Only plain `vMAJOR.MINOR.PATCH` tags count as the last tag; pre-release
+and build tags such as `v1.7.0-rc.1` or `v1.7.0+meta` are skipped.
 
 - `feat!:` (any type with `!`) or a `BREAKING CHANGE:` footer → major. From v1
   on, the module path in `go.mod` must already end in the new `/vN`; otherwise
