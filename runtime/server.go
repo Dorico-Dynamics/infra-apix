@@ -174,18 +174,28 @@ func (h *Handler) RegisterHTTP(mux *http.ServeMux) {
 // HTTPErrorHandler, as the Echo adapter does with an error without an HTTP
 // status, so apix does not log it. Echo's default HTTPErrorHandler answers
 // {"message":"Internal Server Error"}, adds the error's text only when Echo's
-// Debug is on, and does not log it.
+// Debug is on, and does not log it. A response the client did not receive in
+// full is logged at Warn level, as under ServeHTTP, and its error is still
+// returned to Echo.
 func (h *Handler) RegisterEcho(e *echo.Echo) {
 	e.GET(h.cfg.SpecPath, func(c echo.Context) error {
 		payload, ctype, err := h.getSpec(c.Request().Context())
 		if err != nil {
 			return err
 		}
-		return c.Blob(http.StatusOK, ctype, payload)
+		if err := c.Blob(http.StatusOK, ctype, payload); err != nil {
+			logWriteFailed(c.Request(), "OpenAPI document write failed", err)
+			return err
+		}
+		return nil
 	})
 	if h.cfg.EnableSwaggerUI {
 		e.GET(h.cfg.SwaggerUIPath, func(c echo.Context) error {
-			return c.HTML(http.StatusOK, renderSwaggerUI(h.cfg.SpecPath))
+			if err := c.HTML(http.StatusOK, renderSwaggerUI(h.cfg.SpecPath)); err != nil {
+				logWriteFailed(c.Request(), "Swagger UI write failed", err)
+				return err
+			}
+			return nil
 		})
 	}
 }
