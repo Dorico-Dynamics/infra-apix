@@ -40,6 +40,19 @@ func RequestOf(r *http.Request) Request {
 	}
 }
 
+// Attrs returns the log attributes for req: method, path, and request_id and
+// correlation_id when set.
+func (req Request) Attrs() []slog.Attr {
+	attrs := []slog.Attr{slog.String("method", req.Method), slog.String("path", req.Path)}
+	if req.RequestID != "" {
+		attrs = append(attrs, slog.String("request_id", req.RequestID))
+	}
+	if req.CorrelationID != "" {
+		attrs = append(attrs, slog.String("correlation_id", req.CorrelationID))
+	}
+	return attrs
+}
+
 // HandleError writes err as the response for the net/http-based adapters (chi
 // and mux). With useProblemDetails, the body is RFC 9457 application/problem+json.
 func HandleError(w http.ResponseWriter, r *http.Request, err error, useProblemDetails bool) {
@@ -66,12 +79,12 @@ func HandleError(w http.ResponseWriter, r *http.Request, err error, useProblemDe
 func Resolve(ctx context.Context, req Request, err error) (int, error) {
 	var statusCoder apix.StatusCoder
 	if !errors.As(err, &statusCoder) {
-		logReplaced(ctx, req, err, slog.String("reason", "no HTTP status"))
+		LogReplaced(ctx, req, err, slog.String("reason", "no HTTP status"))
 		return http.StatusInternalServerError, InternalError()
 	}
 	status := statusCoder.HTTPStatus()
 	if status < 400 || status > 599 {
-		logReplaced(ctx, req, err, slog.String("reason", "HTTP status outside 4xx and 5xx"), slog.Int("status", status))
+		LogReplaced(ctx, req, err, slog.String("reason", "HTTP status outside 4xx and 5xx"), slog.Int("status", status))
 		return http.StatusInternalServerError, InternalError()
 	}
 	return status, err
@@ -86,18 +99,14 @@ func InternalError() *apix.ProblemDetails {
 	}
 }
 
-// logReplaced logs, at Error level and with the request's context, an error
-// that the client receives as InternalError. It goes to the logger passed to
-// apix.SetLogger, or else to slog.Default(). slog quotes attribute values, so
-// a line break decoded from the path (%0A) cannot forge a log line.
-func logReplaced(ctx context.Context, req Request, err error, attrs ...slog.Attr) {
-	attrs = append(attrs, slog.String("method", req.Method), slog.String("path", req.Path))
-	if req.RequestID != "" {
-		attrs = append(attrs, slog.String("request_id", req.RequestID))
-	}
-	if req.CorrelationID != "" {
-		attrs = append(attrs, slog.String("correlation_id", req.CorrelationID))
-	}
+// LogReplaced logs, at Error level and with the request's context, an error
+// that the client receives as a generic 500: InternalError here, or the
+// runtime handler's plain 500 for a document it cannot build. attrs come first
+// and start with the reason. It goes to the logger passed to apix.SetLogger,
+// or else to slog.Default(). slog quotes attribute values, so a line break
+// decoded from the path (%0A) cannot forge a log line.
+func LogReplaced(ctx context.Context, req Request, err error, attrs ...slog.Attr) {
+	attrs = append(attrs, req.Attrs()...)
 	attrs = append(attrs, slog.Any("error", err))
 	logging.ErrorLogger().LogAttrs(ctx, slog.LevelError, "error answered with a generic 500", attrs...)
 }

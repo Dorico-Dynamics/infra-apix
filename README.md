@@ -517,13 +517,21 @@ level=ERROR msg="error answered with a generic 500" reason="no HTTP status" meth
 `request_id` and `correlation_id` come from the `X-Request-ID` and
 `X-Correlation-ID` request headers, and are left out when a header is not set.
 The Echo adapter leaves an error without a status to Echo's error handler, so it
-logs only an error whose status is outside 4xx and 5xx.
+logs only an error whose status is outside 4xx and 5xx. Echo's default error
+handler does not log the errors it answers.
 `echoadapter.ProblemDetailsErrorHandler(nil)`, with no fallback, answers any
 error itself and logs it like the other adapters.
 
+The runtime handler answers a document it cannot build, validate or encode
+with a plain 500 and logs the error the same way, with
+`reason="OpenAPI document build failed"`, so route, type and scheme names stay
+out of the response. Under `RegisterEcho` it returns the error to Echo's error
+handler instead.
+
 These lines go to `slog.Default()` unless you pass your own logger. That logger
 also receives route registration, schema generation and document builds, at
-Info and Debug level:
+Info and Debug level, and a runtime handler response the client did not
+receive in full, at Warn level:
 
 ```go
 apix.SetLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
