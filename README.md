@@ -487,8 +487,9 @@ handler, err := runtime.NewHandler(runtime.Config{
     // Validation
     Validate: true, // Validate the spec on every build before serving (default: false)
 
-    // Caching
-    CacheTTL: 5 * time.Minute, // Cache spec for 5 minutes (0 = no cache)
+    // Caching: the document is built on the first request and kept until a
+    // route or plugin is registered or removed
+    CacheTTL: 5 * time.Minute, // Also rebuild it every 5 minutes (default: never)
 
     // Paths
     SpecPath:      "/openapi.json",

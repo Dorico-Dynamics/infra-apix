@@ -50,7 +50,6 @@ handler, err := runtime.NewHandler(runtime.Config{
     EnableSwaggerUI: true,
     Servers:         []string{"https://api.example.com"},
     Validate:        true, // Validate spec before serving
-    CacheTTL:        5 * time.Minute, // Cache for 5 minutes
 })
 
 // Register with your framework
@@ -613,11 +612,16 @@ handler, _ := runtime.NewHandler(runtime.Config{
   run: apix spec-guard --existing docs/openapi.yaml
 ```
 
-### 7. Cache Runtime Specs
+### 7. Runtime Specs Are Built Once
+
+The runtime handler builds the document on the first request and keeps it, or
+the error that stopped the build, until a route or plugin is registered or
+removed. Set `CacheTTL` only when a plugin's `OnSpecBuild` output changes over
+time:
 
 ```go
 handler, _ := runtime.NewHandler(runtime.Config{
-    CacheTTL: 5 * time.Minute, // Cache for 5 minutes
+    CacheTTL: 5 * time.Minute, // Also rebuild the document every 5 minutes
 })
 ```
 

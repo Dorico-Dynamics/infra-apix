@@ -103,21 +103,21 @@ func customizeSchemes(b *openapi.Builder) {
 	b.SecuritySchemes["BearerAuth"].Value.Description += "edited once"
 }
 
-// TestConcurrentBuildsDoNotShareSecuritySchemes: each pooled builder gets its
-// own deep copy of the configured schemes. A CustomizeBuilder that adds a
-// scheme and edits a configured one runs once per builder, does not race with
-// builders created at the same time (run with -race), and leaves the caller's
-// schemes unchanged.
-func TestConcurrentBuildsDoNotShareSecuritySchemes(t *testing.T) {
+// TestBuildsDoNotShareSecuritySchemes: each build's builder gets its own deep
+// copy of the configured schemes. A CustomizeBuilder that adds a scheme and
+// edits a configured one runs once per build: concurrent first requests share
+// one build (run with -race), the rebuild after a route is registered edits a
+// fresh copy, and the caller's schemes stay unchanged.
+func TestBuildsDoNotShareSecuritySchemes(t *testing.T) {
 	registerSecuredRoute(t, "BearerAuth", "ApiKey")
 	bearer := openapi3.NewJWTSecurityScheme()
 	schemes := openapi3.SecuritySchemes{"BearerAuth": {Value: bearer}}
 	mux := specMux(t, runtime.Config{SecuritySchemes: schemes, CustomizeBuilder: customizeSchemes})
 
 	start := make(chan struct{})
-	responses := make(chan *httptest.ResponseRecorder, 8)
+	responses := make(chan *httptest.ResponseRecorder, 9)
 	var wg sync.WaitGroup
-	for range cap(responses) {
+	for range cap(responses) - 1 {
 		wg.Go(func() {
 			<-start
 			responses <- getSpec(mux)
@@ -125,6 +125,8 @@ func TestConcurrentBuildsDoNotShareSecuritySchemes(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
+	apix.RegisterRoute(&apix.RouteRef{Method: apix.MethodGet, Path: "/orders", Responses: map[int]*apix.ResponseRef{http.StatusOK: {}}})
+	responses <- getSpec(mux)
 	close(responses)
 	for resp := range responses {
 		var doc struct {
