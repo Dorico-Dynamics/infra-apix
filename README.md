@@ -508,6 +508,8 @@ level=ERROR msg="error answered with a generic 500" reason="no HTTP status" meth
 `X-Correlation-ID` request headers, and are left out when a header is not set.
 The Echo adapter leaves an error without a status to Echo's error handler, so it
 logs only an error whose status is outside 4xx and 5xx.
+`echoadapter.ProblemDetailsErrorHandler(nil)`, with no fallback, answers any
+error itself and logs it like the other adapters.
 
 These lines go to `slog.Default()` unless you pass your own logger. That logger
 also receives route registration, schema generation and document builds, at

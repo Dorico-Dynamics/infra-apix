@@ -728,7 +728,7 @@ Sends apix's logs to `logger`. `nil` restores the defaults.
 func SetLogger(logger *slog.Logger)
 ```
 
-- **Errors answered with a generic 500.** These are errors without an HTTP status, or with a status outside 4xx and 5xx. They are logged at Error level, with the request's context, under the message `error answered with a generic 500`. The attributes are `reason`, `status` (for an invalid status), `method`, `path`, `request_id` (from `X-Request-ID`), `correlation_id` (from `X-Correlation-ID`) and `error`. The two ids are left out when the header is not set. Without a logger, these lines go to `slog.Default()`.
+- **Errors answered with a generic 500.** These are errors without an HTTP status, or with a status outside 4xx and 5xx. They are logged at Error level, with the request's context, under the message `error answered with a generic 500`. The attributes are `reason`, `status` (for an invalid status), `method`, `path`, `request_id` (from `X-Request-ID`), `correlation_id` (from `X-Correlation-ID`) and `error`. The two ids are left out when the header is not set. Without a logger, these lines go to `slog.Default()`. The Echo adapter leaves an error without an HTTP status to Echo's `HTTPErrorHandler`, which answers and logs it. It logs only an error whose status is outside 4xx and 5xx. `ProblemDetailsErrorHandler` without a fallback answers any error itself and logs it like the other adapters.
 - **Library events.** Route registration, schema generation and document builds are logged at Info and Debug level, and only to a logger passed to `SetLogger`. Set it before registering routes.
 
 ## Error Types

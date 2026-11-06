@@ -133,6 +133,45 @@ func TestProblemDetailsErrorHandlerAnswers500ForAProblemWithoutStatus(t *testing
 	}
 }
 
+// TestProblemDetailsErrorHandlerLogsAnErrorItAnswersWith500: without a
+// fallback, the handler answers an error without an HTTP status with the
+// generic 500 the other adapters send, and logs it through SetLogger with the
+// request ids.
+func TestProblemDetailsErrorHandlerLogsAnErrorItAnswersWith500(t *testing.T) {
+	var logs bytes.Buffer
+	apix.SetLogger(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelError})))
+	t.Cleanup(func() { apix.SetLogger(nil) })
+
+	e := echo.New()
+	e.HTTPErrorHandler = echoadapter.ProblemDetailsErrorHandler(nil)
+	e.GET("/plain", func(c echo.Context) error {
+		return errors.New(`pq: relation "items" does not exist`)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/plain", nil)
+	req.Header.Set("X-Request-ID", "req-1")
+	req.Header.Set("X-Correlation-ID", "corr-1")
+	resp := httptest.NewRecorder()
+	e.ServeHTTP(resp, req)
+
+	want := `{"status":500,"title":"Internal Server Error","type":"about:blank"}`
+	if got := strings.TrimSpace(resp.Body.String()); resp.Code != http.StatusInternalServerError || got != want {
+		t.Errorf("response = %d %s, want 500 %s", resp.Code, got, want)
+	}
+	var line map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &line); err != nil {
+		t.Fatalf("want one JSON line, got %q: %v", logs.String(), err)
+	}
+	for key, want := range map[string]any{
+		"msg": "error answered with a generic 500", "reason": "no HTTP status", "method": "GET", "path": "/plain",
+		"request_id": "req-1", "correlation_id": "corr-1", "error": `pq: relation "items" does not exist`,
+	} {
+		if line[key] != want {
+			t.Errorf("%s = %v, want %v", key, line[key], want)
+		}
+	}
+}
+
 // TestEchoAdapterLogsTheRequestOfAnErrorItAnswersWith500: the error line
 // names the request's method, path, X-Request-ID and X-Correlation-ID.
 // Echo's error handler answers an error without a status, so the adapter

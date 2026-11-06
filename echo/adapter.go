@@ -256,21 +256,14 @@ func ProblemDetailsErrorHandler(fallback echo.HTTPErrorHandler) echo.HTTPErrorHa
 			return
 		}
 
-		// No fallback provided - create a safe default Problem Details response
-		// Log the original error server-side for debugging
-		c.Logger().Errorf("unhandled error (no fallback): %v", err)
-
-		// Return generic message to client (don't leak internal error details)
-		defaultProblem := &apix.ProblemDetails{
-			Status: http.StatusInternalServerError,
-			Title:  "Internal Server Error",
-			Detail: "An internal error occurred",
-		}
+		// No fallback: answer like the other adapters. An error without a 4xx
+		// or 5xx status is logged and replaced by a generic 500, so its text
+		// stays server-side.
+		status, sent := errorhandler.Resolve(c.Request().Context(), errorhandler.RequestOf(c.Request()), err)
 		c.Response().Header().Set("Content-Type", "application/problem+json")
-		c.Response().WriteHeader(http.StatusInternalServerError)
-		if encErr := json.NewEncoder(c.Response()).Encode(defaultProblem); encErr != nil {
-			// Last resort: log the error and ensure status is set
-			c.Logger().Errorf("failed to encode default problem details: %v", encErr)
+		c.Response().WriteHeader(status)
+		if encErr := json.NewEncoder(c.Response()).Encode(apix.ToProblemDetails(sent)); encErr != nil {
+			c.Logger().Errorf("failed to encode problem details: %v", encErr)
 		}
 	}
 }

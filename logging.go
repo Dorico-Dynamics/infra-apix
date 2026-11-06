@@ -13,9 +13,13 @@ import (
 // carries the method, the path, the X-Request-ID and X-Correlation-ID request
 // headers as request_id and correlation_id when set, and the error. It is
 // logged with the request's context, so a context-aware handler can add trace
-// ids. Route registration, schema generation and document builds are logged
-// at Info and Debug level; set the logger before registering routes to see
-// their events.
+// ids. The Echo adapter is the exception: it leaves an error without an HTTP
+// status to Echo's HTTPErrorHandler, which answers and logs it, so it logs
+// only an error with a status outside 4xx and 5xx. echo.ProblemDetailsErrorHandler
+// without a fallback answers any error itself and logs it like the others.
+// Route registration, schema generation and document builds are logged at
+// Info and Debug level; set the logger before registering routes to see their
+// events.
 //
 // Without SetLogger, or after SetLogger(nil), apix logs only those errors, to
 // slog.Default().
