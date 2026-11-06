@@ -205,7 +205,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set(http.CanonicalHeaderKey("Content-Type"), ctype)
+	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("Cache-Control", "no-store")
 	if _, err := w.Write(payload); err != nil {
 		logWriteFailed(r, "OpenAPI document write failed", err)
@@ -213,7 +213,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) swaggerUI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set(http.CanonicalHeaderKey("Content-Type"), "text/html; charset=utf-8")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if _, err := w.Write([]byte(renderSwaggerUI(h.cfg.SpecPath))); err != nil {
 		logWriteFailed(r, "Swagger UI write failed", err)
 	}

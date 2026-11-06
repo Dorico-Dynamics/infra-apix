@@ -541,10 +541,7 @@ func jsonName(field reflect.StructField) (name string, skip bool) {
 func isFieldRequired(field reflect.StructField) bool {
 	tag := field.Tag.Get("json")
 	if strings.Contains(tag, "omitempty") {
-		if hasRequiredTag(field) {
-			return true
-		}
-		return false
+		return hasRequiredTag(field)
 	}
 
 	if hasRequiredTag(field) {
@@ -565,10 +562,7 @@ func hasRequiredTag(field reflect.StructField) bool {
 		return true
 	}
 	binding := field.Tag.Get("binding")
-	if strings.Contains(binding, "required") {
-		return true
-	}
-	return false
+	return strings.Contains(binding, "required")
 }
 
 // parseExampleValue converts a string example value to the appropriate type
@@ -605,10 +599,10 @@ func parseExampleValue(exampleStr string, fieldType reflect.Type) any {
 		return exampleStr
 	case reflect.Bool:
 		// For bool types, try to parse as bool (case-insensitive)
-		lowerStr := strings.ToLower(exampleStr)
-		if lowerStr == "true" {
+		switch strings.ToLower(exampleStr) {
+		case "true":
 			return true
-		} else if lowerStr == "false" {
+		case "false":
 			return false
 		}
 		return exampleStr
