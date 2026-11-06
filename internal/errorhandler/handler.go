@@ -40,6 +40,19 @@ func RequestOf(r *http.Request) Request {
 	}
 }
 
+// Attrs returns the log attributes for req: method, path, and request_id and
+// correlation_id when set.
+func (req Request) Attrs() []slog.Attr {
+	attrs := []slog.Attr{slog.String("method", req.Method), slog.String("path", req.Path)}
+	if req.RequestID != "" {
+		attrs = append(attrs, slog.String("request_id", req.RequestID))
+	}
+	if req.CorrelationID != "" {
+		attrs = append(attrs, slog.String("correlation_id", req.CorrelationID))
+	}
+	return attrs
+}
+
 // HandleError writes err as the response for the net/http-based adapters (chi
 // and mux). With useProblemDetails, the body is RFC 9457 application/problem+json.
 func HandleError(w http.ResponseWriter, r *http.Request, err error, useProblemDetails bool) {
@@ -93,13 +106,7 @@ func InternalError() *apix.ProblemDetails {
 // or else to slog.Default(). slog quotes attribute values, so a line break
 // decoded from the path (%0A) cannot forge a log line.
 func LogReplaced(ctx context.Context, req Request, err error, attrs ...slog.Attr) {
-	attrs = append(attrs, slog.String("method", req.Method), slog.String("path", req.Path))
-	if req.RequestID != "" {
-		attrs = append(attrs, slog.String("request_id", req.RequestID))
-	}
-	if req.CorrelationID != "" {
-		attrs = append(attrs, slog.String("correlation_id", req.CorrelationID))
-	}
+	attrs = append(attrs, req.Attrs()...)
 	attrs = append(attrs, slog.Any("error", err))
 	logging.ErrorLogger().LogAttrs(ctx, slog.LevelError, "error answered with a generic 500", attrs...)
 }

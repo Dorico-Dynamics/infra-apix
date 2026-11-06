@@ -21,8 +21,9 @@ import (
 // for a document it cannot build, validate or encode, except under
 // RegisterEcho, which leaves the error to Echo's HTTPErrorHandler too.
 // Route registration, schema generation and document builds are logged at
-// Info and Debug level; set the logger before registering routes to see their
-// events.
+// Info and Debug level, and a runtime.Handler response the client did not
+// receive in full at Warn level; set the logger before registering routes to
+// see their events.
 //
 // Without SetLogger, or after SetLogger(nil), apix logs only those errors, to
 // slog.Default().
