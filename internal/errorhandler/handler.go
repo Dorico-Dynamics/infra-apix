@@ -1,6 +1,7 @@
-// Package errorhandler writes adapter error responses. An error that carries an
-// HTTP status (apix.StatusCoder) is sent with that status; any other error is
-// logged and replaced by InternalError, so its message never reaches the client.
+// Package errorhandler writes adapter error responses. An error that carries a
+// 4xx or 5xx HTTP status (apix.StatusCoder) is sent with that status; any other
+// error is logged and replaced by InternalError, so its message never reaches
+// the client.
 package errorhandler
 
 import (
@@ -15,13 +16,7 @@ import (
 // HandleError writes err as the response for the net/http-based adapters (chi
 // and mux). With useProblemDetails, the body is RFC 9457 application/problem+json.
 func HandleError(w http.ResponseWriter, r *http.Request, err error, useProblemDetails bool) {
-	var statusCoder apix.StatusCoder
-	if !errors.As(err, &statusCoder) {
-		LogUnhandled(r.Method, r.URL.Path, err)
-		statusCoder = InternalError()
-		err = statusCoder
-	}
-	status := statusCoder.HTTPStatus()
+	status, err := Resolve(r.Method, r.URL.Path, err)
 
 	if useProblemDetails {
 		// Marshal before writing headers so a failure can still fall back to text.
@@ -36,8 +31,27 @@ func HandleError(w http.ResponseWriter, r *http.Request, err error, useProblemDe
 	http.Error(w, err.Error(), status)
 }
 
-// InternalError is sent in place of an error that carries no HTTP status: a
-// 500 whose only text is the status text.
+// Resolve returns the status and the error to send for err. err is sent as is
+// only when it carries a 4xx or 5xx status. Otherwise Resolve logs it and
+// returns InternalError: net/http panics on a status below 100 or above 999,
+// and any other status would present the error as an informational, success
+// or redirect response.
+func Resolve(method, path string, err error) (int, error) {
+	var statusCoder apix.StatusCoder
+	if !errors.As(err, &statusCoder) {
+		LogUnhandled(method, path, err)
+		return http.StatusInternalServerError, InternalError()
+	}
+	status := statusCoder.HTTPStatus()
+	if status < 400 || status > 599 {
+		log.Printf("error with HTTP status %d, not 4xx or 5xx, in %q %q: %v", status, method, path, err)
+		return http.StatusInternalServerError, InternalError()
+	}
+	return status, err
+}
+
+// InternalError is sent in place of an error that carries no HTTP error
+// status: a 500 whose only text is the status text.
 func InternalError() *apix.ProblemDetails {
 	return &apix.ProblemDetails{
 		Status: http.StatusInternalServerError,

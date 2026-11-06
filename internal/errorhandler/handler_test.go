@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -113,6 +114,75 @@ func TestLogUnhandledKeepsAnEncodedLineBreakInOneLine(t *testing.T) {
 	want := `unrecognized error in "GET" "/ledger\nunrecognized error in GET /admin": boom` + "\n"
 	if logs.String() != want {
 		t.Errorf("log = %q, want %q", logs.String(), want)
+	}
+}
+
+// TestResolveKeepsAnErrorStatus: an error with a 4xx or 5xx status is sent as
+// is, and nothing is logged.
+func TestResolveKeepsAnErrorStatus(t *testing.T) {
+	var logs bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(prev) })
+
+	for _, status := range []int{400, 404, 418, 499, 500, 503, 599} {
+		err := fmt.Errorf("lookup: %w", apix.WithStatus(status, "custom message"))
+		gotStatus, got := Resolve("GET", "/test", err)
+		if gotStatus != status || got != err {
+			t.Errorf("status %d: Resolve = %d, %v; want %d and the error itself", status, gotStatus, got, status)
+		}
+	}
+	if logs.Len() != 0 {
+		t.Errorf("nothing should be logged, got %q", logs.String())
+	}
+}
+
+// TestResolveReplacesAnyOtherStatus: net/http panics on a status below 100 or
+// above 999, and any other status outside 4xx and 5xx would present the error
+// as an informational, success or redirect response. The error is logged, and
+// InternalError is sent instead.
+func TestResolveReplacesAnyOtherStatus(t *testing.T) {
+	var logs bytes.Buffer
+	prev, flags := log.Writer(), log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	t.Cleanup(func() { log.SetOutput(prev); log.SetFlags(flags) })
+
+	for _, status := range []int{-1, 0, 99, 100, 103, 200, 204, 302, 304, 399, 600, 999, 1000} {
+		logs.Reset()
+		gotStatus, got := Resolve("GET", "/test", apix.WithStatus(status, "custom message"))
+		if gotStatus != http.StatusInternalServerError || !reflect.DeepEqual(got, InternalError()) {
+			t.Errorf("status %d: Resolve = %d, %#v; want 500 and InternalError", status, gotStatus, got)
+		}
+		want := fmt.Sprintf(`error with HTTP status %d, not 4xx or 5xx, in "GET" "/test": http %d: custom message`+"\n", status, status)
+		if logs.String() != want {
+			t.Errorf("status %d: log = %q, want %q", status, logs.String(), want)
+		}
+	}
+}
+
+// TestHandleErrorWithAProblemWithoutStatus: a ProblemDetails without Status
+// made WriteHeader panic. It is logged and answered with InternalError, in
+// both response formats.
+func TestHandleErrorWithAProblemWithoutStatus(t *testing.T) {
+	var logs bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(prev) })
+
+	for _, problemMode := range []bool{false, true} {
+		w := httptest.NewRecorder()
+		HandleError(w, httptest.NewRequest("GET", "/test", nil), &apix.ProblemDetails{Title: "Missing status"}, problemMode)
+
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("problem mode %v: status = %d, want 500", problemMode, w.Code)
+		}
+		if strings.Contains(w.Body.String(), "Missing status") {
+			t.Errorf("problem mode %v: the error must not reach the client, got %s", problemMode, w.Body.String())
+		}
+	}
+	if got := strings.Count(logs.String(), `error with HTTP status 0, not 4xx or 5xx, in "GET" "/test": Missing status`); got != 2 {
+		t.Errorf("want the error logged once per request, got %q", logs.String())
 	}
 }
 

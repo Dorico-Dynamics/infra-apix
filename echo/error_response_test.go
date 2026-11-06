@@ -16,7 +16,8 @@ import (
 // TestEchoAdapterErrorResponsesKeepInternalsPrivate: a decode failure is told in
 // JSON terms, never by Go type or package names, in both response formats. An
 // error without an HTTP status is left to Echo's error handler, which answers
-// a generic 500.
+// a generic 500. An error with a status outside 4xx and 5xx gets a generic 500
+// from the adapter.
 func TestEchoAdapterErrorResponsesKeepInternalsPrivate(t *testing.T) {
 	internal := errors.New(`pq: relation "items" does not exist`)
 	cases := []struct {
@@ -54,6 +55,26 @@ func TestEchoAdapterErrorResponsesKeepInternalsPrivate(t *testing.T) {
 			status: http.StatusInternalServerError, contentType: echo.MIMEApplicationJSON,
 			response: `{"message":"Internal Server Error"}`,
 		},
+		{
+			name: "error with status 0", body: `{"name": "a"}`, handlerErr: apix.WithStatus(0, "custom message"),
+			status: http.StatusInternalServerError, contentType: echo.MIMEApplicationJSON,
+			response: `{"message":"Internal Server Error"}`,
+		},
+		{
+			name: "problem without status", problem: true, body: `{"name": "a"}`, handlerErr: &apix.ProblemDetails{Title: "Missing status"},
+			status: http.StatusInternalServerError, contentType: "application/problem+json",
+			response: `{"status":500,"title":"Internal Server Error","type":"about:blank"}`,
+		},
+		{
+			name: "error with success status", body: `{"name": "a"}`, handlerErr: apix.WithStatus(http.StatusOK, "custom message"),
+			status: http.StatusInternalServerError, contentType: echo.MIMEApplicationJSON,
+			response: `{"message":"Internal Server Error"}`,
+		},
+		{
+			name: "error with not-modified status as problem", problem: true, body: `{"name": "a"}`, handlerErr: apix.WithStatus(http.StatusNotModified, "custom message"),
+			status: http.StatusInternalServerError, contentType: "application/problem+json",
+			response: `{"status":500,"title":"Internal Server Error","type":"about:blank"}`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -81,5 +102,30 @@ func TestEchoAdapterErrorResponsesKeepInternalsPrivate(t *testing.T) {
 				t.Errorf("body = %s, want %s", got, tc.response)
 			}
 		})
+	}
+}
+
+// TestProblemDetailsErrorHandlerAnswers500ForAProblemWithoutStatus: a problem
+// from a plain Echo route reaches the handler without passing the adapter, and
+// WriteHeader(0) used to panic.
+func TestProblemDetailsErrorHandlerAnswers500ForAProblemWithoutStatus(t *testing.T) {
+	e := echo.New()
+	e.HTTPErrorHandler = echoadapter.ProblemDetailsErrorHandler(nil)
+	e.GET("/plain", func(c echo.Context) error {
+		return &apix.ProblemDetails{Title: "Missing status"}
+	})
+
+	resp := httptest.NewRecorder()
+	e.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/plain", nil))
+
+	if resp.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", resp.Code)
+	}
+	if ct := resp.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Errorf("Content-Type = %q, want application/problem+json", ct)
+	}
+	want := `{"status":500,"title":"Internal Server Error","type":"about:blank"}`
+	if got := strings.TrimSpace(resp.Body.String()); got != want {
+		t.Errorf("body = %s, want %s", got, want)
 	}
 }
