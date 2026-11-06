@@ -8,6 +8,13 @@ on:
     branches:
       - main
 
+# Releases from main run one at a time, so each run tags after the previous
+# run's tag exists. A newer push replaces a run that is still waiting, and its
+# release covers both. A new push to a pull request cancels the older run.
+concurrency:
+  group: release-${{ github.event_name == 'push' && github.ref || github.event.pull_request.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
 
   test:
@@ -71,6 +78,11 @@ jobs:
       - name: Build CLI
         run: go build -o apix ./cmd/apix
 
+      - name: Check release scripts
+        run: |
+          shellcheck .github/scripts/*.sh
+          .github/scripts/next-version_test.sh
+
   sonarqube:
     needs: [test]
     name: SonarQube Analysis
@@ -112,66 +124,38 @@ jobs:
       - name: Get latest tag
         id: latest_tag
         run: |
-          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.2.0")
-          if [ "$latest_tag" = "v0.2.0" ] && ! git rev-parse "v0.2.0" >/dev/null 2>&1; then
-            echo "latest_tag=HEAD" >> $GITHUB_OUTPUT
-            echo "initial_version=true" >> $GITHUB_OUTPUT
-          else
-            echo "latest_tag=${latest_tag}" >> $GITHUB_OUTPUT
-            echo "initial_version=false" >> $GITHUB_OUTPUT
-          fi
+          latest_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*')
+          echo "latest_tag=${latest_tag}" >> "$GITHUB_OUTPUT"
 
       - name: Generate changelog
         id: changelog
+        env:
+          LATEST_TAG: ${{ steps.latest_tag.outputs.latest_tag }}
         run: |
-          if [ "${{ steps.latest_tag.outputs.initial_version }}" = "true" ]; then
-            changelog="Initial release v0.2.0 - apix library with 5 framework adapters (Echo, Chi, Mux, Gin, Fiber), OpenAPI 3.1 generation, and comprehensive testing."
-          else
-            changelog=$(git log ${{ steps.latest_tag.outputs.latest_tag }}..HEAD --pretty=format:"- %s%n%b")
-          fi
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "$changelog" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          # A random delimiter, so no commit message can end the value early.
+          delimiter="CHANGELOG_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+          {
+            echo "changelog<<${delimiter}"
+            git log "${LATEST_TAG}..HEAD" --pretty=format:"- %s%n%b"
+            echo
+            echo "${delimiter}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Determine version bump
         id: semver
+        env:
+          LATEST_TAG: ${{ steps.latest_tag.outputs.latest_tag }}
         run: |
-          if [ "${{ steps.latest_tag.outputs.initial_version }}" = "true" ]; then
-            echo "new_version=v0.2.0" >> $GITHUB_OUTPUT
-            echo "version_changed=true" >> $GITHUB_OUTPUT
-            exit 0
+          new_version=$(.github/scripts/next-version.sh "$LATEST_TAG")
+          version_changed=false
+          if [ -n "$new_version" ]; then
+            version_changed=true
           fi
-
-          latest_version=${{ steps.latest_tag.outputs.latest_tag }}
-          latest_version=${latest_version#v}
-
-          IFS='.' read -r major minor patch <<< "$latest_version"
-
-          commits=$(git log ${{ steps.latest_tag.outputs.latest_tag }}..HEAD --pretty=format:"%s")
-
-          version_changed="false"
-
-          while IFS= read -r commit; do
-            if [[ "$commit" == *"BREAKING CHANGE:"* ]]; then
-              major=$((major + 1))
-              minor=0
-              patch=0
-              version_changed="true"
-              break
-            elif [[ "$commit" == "feat:"* ]]; then
-              minor=$((minor + 1))
-              patch=0
-              version_changed="true"
-            elif [[ "$commit" == "fix:"* ]]; then
-              patch=$((patch + 1))
-              version_changed="true"
-            fi
-          done <<< "$commits"
-
-          new_version="v${major}.${minor}.${patch}"
-
-          echo "new_version=${new_version}" >> $GITHUB_OUTPUT
-          echo "version_changed=${version_changed}" >> $GITHUB_OUTPUT
+          echo "Since ${LATEST_TAG}: ${new_version:-no release}"
+          {
+            echo "new_version=${new_version}"
+            echo "version_changed=${version_changed}"
+          } >> "$GITHUB_OUTPUT"
 
   release:
     name: Create Release
@@ -220,12 +204,14 @@ jobs:
       - name: Create Tag
         env:
           GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ needs.version.outputs.new_version }}
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
-          git remote set-url origin https://x-access-token:${GITOPS_TOKEN}@github.com/${{ github.repository }}.git
-          git tag -a ${{ needs.version.outputs.new_version }} -m "Release ${{ needs.version.outputs.new_version }}"
-          git push origin ${{ needs.version.outputs.new_version }}
+          git remote set-url origin "https://x-access-token:${GITOPS_TOKEN}@github.com/${REPO}.git"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin "$VERSION"
 
       - name: Create Release
         uses: actions/create-release@v1
@@ -252,24 +238,28 @@ jobs:
           echo "📚 Documentation: https://pkg.go.dev/github.com/Infra-Forge/infra-apix@${{ needs.version.outputs.new_version }}"
 
       - name: Create release summary
+        env:
+          REPO: ${{ github.repository }}
+          VERSION: ${{ needs.version.outputs.new_version }}
         run: |
-          VERSION="${{ needs.version.outputs.new_version }}"
-          echo "## 🚀 Release ${VERSION}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ✅ Quality Gates Passed" >> $GITHUB_STEP_SUMMARY
-          echo "- Tests passed with 80%+ coverage" >> $GITHUB_STEP_SUMMARY
-          echo "- Code quality verified" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Installation" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "# Library" >> $GITHUB_STEP_SUMMARY
-          echo "go get github.com/Infra-Forge/infra-apix@${VERSION}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "# CLI Tool" >> $GITHUB_STEP_SUMMARY
-          echo "go install github.com/Infra-Forge/infra-apix/cmd/apix@${VERSION}" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔗 Resources" >> $GITHUB_STEP_SUMMARY
-          echo "- [Release Notes](https://github.com/${{ github.repository }}/releases/tag/${VERSION})" >> $GITHUB_STEP_SUMMARY
-          echo "- [Documentation](https://pkg.go.dev/github.com/Infra-Forge/infra-apix@${VERSION})" >> $GITHUB_STEP_SUMMARY
-          echo "- [Examples](https://github.com/${{ github.repository }}/tree/main/examples)" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🚀 Release ${VERSION}"
+            echo ""
+            echo "### ✅ Quality Gates Passed"
+            echo "- Tests passed with 80%+ coverage"
+            echo "- Code quality verified"
+            echo ""
+            echo "### 📦 Installation"
+            echo "\`\`\`bash"
+            echo "# Library"
+            echo "go get github.com/Infra-Forge/infra-apix@${VERSION}"
+            echo ""
+            echo "# CLI Tool"
+            echo "go install github.com/Infra-Forge/infra-apix/cmd/apix@${VERSION}"
+            echo "\`\`\`"
+            echo ""
+            echo "### 🔗 Resources"
+            echo "- [Release Notes](https://github.com/${REPO}/releases/tag/${VERSION})"
+            echo "- [Documentation](https://pkg.go.dev/github.com/Infra-Forge/infra-apix@${VERSION})"
+            echo "- [Examples](https://github.com/${REPO}/tree/main/examples)"
+          } >> "$GITHUB_STEP_SUMMARY"
