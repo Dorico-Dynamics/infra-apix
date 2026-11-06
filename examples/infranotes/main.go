@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Infra-Forge/apix"
-	echoadapter "github.com/Infra-Forge/apix/echo"
-	"github.com/Infra-Forge/apix/openapi"
-	"github.com/Infra-Forge/apix/runtime"
+	apix "github.com/Infra-Forge/infra-apix"
+	echoadapter "github.com/Infra-Forge/infra-apix/echo"
+	"github.com/Infra-Forge/infra-apix/openapi"
+	"github.com/Infra-Forge/infra-apix/runtime"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -381,16 +381,15 @@ func main() {
 		Format:          "json",
 		Servers:         []string{"https://api.infranotes.com", "http://localhost:8080"},
 		EnableSwaggerUI: true,
+		// Every scheme the routes name with apix.WithSecurity must be declared
+		SecuritySchemes: openapi3.SecuritySchemes{
+			"BearerAuth": &openapi3.SecuritySchemeRef{
+				Value: openapi3.NewJWTSecurityScheme(),
+			},
+		},
 		CustomizeBuilder: func(b *openapi.Builder) {
 			// Add description
 			b.Info.Description = "Production-grade financial analytics and document processing API built with apix"
-
-			// Add security schemes
-			b.SecuritySchemes = openapi3.SecuritySchemes{
-				"BearerAuth": &openapi3.SecuritySchemeRef{
-					Value: openapi3.NewJWTSecurityScheme(),
-				},
-			}
 
 			// Add contact info
 			b.Info.Contact = &openapi3.Contact{

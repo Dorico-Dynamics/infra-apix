@@ -146,12 +146,11 @@ type TransactionModel struct {
 
 ```go
 handler, _ := runtime.NewHandler(runtime.Config{
-    CustomizeBuilder: func(b *openapi.Builder) {
-        b.SecuritySchemes = openapi3.SecuritySchemes{
-            "BearerAuth": &openapi3.SecuritySchemeRef{
-                Value: openapi3.NewJWTSecurityScheme(),
-            },
-        }
+    // Every scheme the routes name with apix.WithSecurity must be declared
+    SecuritySchemes: openapi3.SecuritySchemes{
+        "BearerAuth": &openapi3.SecuritySchemeRef{
+            Value: openapi3.NewJWTSecurityScheme(),
+        },
     },
 })
 ```
@@ -231,7 +230,7 @@ muxadapter.Post(adapter, "/api/users", createUser)
 ### Step 1: Install Dependencies
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 go get github.com/labstack/echo/v4  # or your framework of choice
 ```
 
@@ -290,9 +289,8 @@ infranotes/
 ### Local Development
 
 ```bash
-# Use replace directive for local development
+# Each example's go.mod already replaces infra-apix with this checkout
 cd examples/infranotes
-go mod edit -replace github.com/Infra-Forge/apix=../..
 go run main.go
 ```
 
@@ -366,7 +364,7 @@ echoadapter.Get(adapter, "/api/users", listUsers,
 ## Notes
 
 - Examples use `replace` directive in `go.mod` to reference the local library
-- In production, use the published version: `github.com/Infra-Forge/apix@latest`
+- In production, use the published version: `github.com/Infra-Forge/infra-apix@latest`
 - All examples are production-ready and can be used as templates
 - Each example is self-contained and can run independently
 
