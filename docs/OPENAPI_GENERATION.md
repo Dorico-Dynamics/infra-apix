@@ -462,7 +462,6 @@ echoadapter.Post(adapter, "/api/users", createUser,
         Description: "URI of the created resource",
         SchemaType:  "string",
         Required:    true,
-        Example:     "/api/users/123",
     }),
 )
 ```

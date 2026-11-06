@@ -15,7 +15,7 @@ Current Go OpenAPI tooling (swaggo, spec-first generators) relies on comments or
 - **Code-first**: Derive routes, schemas, and security from Go handlers
 - **Type-safe**: Generic handlers `HandlerFunc[TReq, TResp]` with compile-time safety
 - **Deterministic**: Sorted paths/components for git-friendly diffs
-- **DX defaults**: Auto-inject 201 Location headers, 401/403 on secured routes
+- **DX defaults**: 201 for POST, 204 for DELETE, 401/403 on secured routes
 - **Runtime + CLI**: Serve `/openapi.json` live or generate static specs with `apix generate`
 - **Guardrails**: DO-NOT-EDIT headers, CI drift checks, spec-guard command
 
@@ -294,13 +294,19 @@ func deleteItem(ctx context.Context, _ *apix.NoBody) (apix.NoBody, error)
 
 `apix` applies sensible defaults aligned with REST best practices:
 
-| Method | Default Status | Auto-injected Headers | Auto-injected Responses |
-|--------|----------------|----------------------|------------------------|
-| POST   | 201 Created    | Location (URI)       | 401, 403 (if secured)  |
-| GET    | 200 OK         | -                    | 401, 403 (if secured)  |
-| PUT    | 200 OK         | -                    | 401, 403 (if secured)  |
-| PATCH  | 200 OK         | -                    | 401, 403 (if secured)  |
-| DELETE | 204 No Content | -                    | 401, 403 (if secured)  |
+| Method | Default Status | Request Body Documented | Auto-injected Responses |
+|--------|----------------|-------------------------|------------------------|
+| POST   | 201 Created    | Yes                     | 401, 403 (if secured)  |
+| GET    | 200 OK         | No                      | 401, 403 (if secured)  |
+| PUT    | 200 OK         | Yes                     | 401, 403 (if secured)  |
+| PATCH  | 200 OK         | Yes                     | 401, 403 (if secured)  |
+| DELETE | 204 No Content | No                      | 401, 403 (if secured)  |
+
+A request type on GET or DELETE holds query or path values, so it is not
+documented as a request body. Response headers such as `Location` are
+documented only when declared, for example with `apix.WithSuccessHeaders`;
+`Build` fails if that option names a status that is not one of the route's
+responses.
 
 ## Struct Tags
 

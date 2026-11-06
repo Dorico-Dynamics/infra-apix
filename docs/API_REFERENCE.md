@@ -286,7 +286,9 @@ apix.WithSuccessStatus(http.StatusAccepted) // 202
 
 ### WithSuccessHeaders
 
-Adds custom headers to the success response.
+Documents headers on the response for `status`, such as the `Location` a
+create handler sets. apix documents no response header by default. `Build`
+fails if `status` is not one of the route's responses.
 
 ```go
 func WithSuccessHeaders(status int, headers ...HeaderRef) RouteOption
@@ -299,7 +301,6 @@ apix.WithSuccessHeaders(http.StatusCreated, apix.HeaderRef{
     Description: "URI of the created resource",
     SchemaType:  "string",
     Required:    true,
-    Example:     "/api/users/123",
 })
 ```
 
