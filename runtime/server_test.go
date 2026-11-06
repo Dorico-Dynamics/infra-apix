@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apix "github.com/Infra-Forge/infra-apix"
+	"github.com/Infra-Forge/infra-apix/openapi"
 	"github.com/Infra-Forge/infra-apix/runtime"
 	echo "github.com/labstack/echo/v4"
 )
@@ -59,6 +60,37 @@ func TestHandlerServeHTTPValidationError(t *testing.T) {
 	mux.ServeHTTP(resp, req)
 	if resp.Code != http.StatusInternalServerError {
 		t.Fatalf("expected validation failure -> 500, got %d", resp.Code)
+	}
+}
+
+// TestValidateIsOffUnlessSet: a document kin-openapi rejects, here one with a
+// blank info title, is served while Validate is unset and answered with 500
+// once it is set.
+func TestValidateIsOffUnlessSet(t *testing.T) {
+	apix.ResetRegistry()
+	apix.RegisterRoute(&apix.RouteRef{Method: apix.MethodGet, Path: "/untitled", Responses: map[int]*apix.ResponseRef{http.StatusOK: {}}})
+	blankTitle := func(b *openapi.Builder) { b.Info.Title = "" }
+
+	for _, tc := range []struct {
+		name     string
+		cfg      runtime.Config
+		wantCode int
+		wantBody string
+	}{
+		{"unset", runtime.Config{CustomizeBuilder: blankTitle}, http.StatusOK, `"/untitled"`},
+		{"set", runtime.Config{CustomizeBuilder: blankTitle, Validate: true}, http.StatusInternalServerError, "validate openapi: "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, err := runtime.NewHandler(tc.cfg)
+			if err != nil {
+				t.Fatalf("new handler: %v", err)
+			}
+			resp := httptest.NewRecorder()
+			h.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/openapi.json", nil))
+			if resp.Code != tc.wantCode || !strings.Contains(resp.Body.String(), tc.wantBody) {
+				t.Fatalf("got %d %q, want %d containing %q", resp.Code, resp.Body.String(), tc.wantCode, tc.wantBody)
+			}
+		})
 	}
 }
 

@@ -29,7 +29,8 @@ type Config struct {
 	// Servers are applied to the generated document.
 	Servers []string
 
-	// Validate enables kin-openapi validation before serving. Default true.
+	// Validate checks the document with kin-openapi on every build and answers
+	// 500 instead of serving an invalid one. Off unless set.
 	Validate bool
 
 	// CacheTTL controls how long the generated spec is cached before regeneration.
@@ -64,10 +65,6 @@ func NewHandler(cfg Config) (*Handler, error) {
 	if cfg.Format == "" {
 		cfg.Format = "json"
 	}
-	// Default Validate to true if not explicitly set
-	// Note: Go's zero value for bool is false, so we can't distinguish between
-	// "not set" and "explicitly set to false". We'll assume true by default.
-	// Users must explicitly set Validate: false to disable validation.
 	if cfg.SpecPath == "" {
 		switch strings.ToLower(cfg.Format) {
 		case "yaml", "yml":
