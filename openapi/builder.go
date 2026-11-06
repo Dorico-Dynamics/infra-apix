@@ -275,20 +275,7 @@ func (b *Builder) buildResponse(status int, ref *apix.ResponseRef) (*openapi3.Re
 	}
 
 	for _, hdr := range ref.Headers {
-		headerSchema := &openapi3.Schema{}
-		schemaType(headerSchema, hdr.SchemaType)
-		if headerSchema.Type == nil || len(*headerSchema.Type) == 0 {
-			schemaType(headerSchema, "string")
-		}
-		resp.Headers[hdr.Name] = &openapi3.HeaderRef{
-			Value: &openapi3.Header{
-				Parameter: openapi3.Parameter{
-					Description: hdr.Description,
-					Required:    hdr.Required,
-					Schema:      &openapi3.SchemaRef{Value: headerSchema},
-				},
-			},
-		}
+		resp.Headers[hdr.Name] = headerRef(hdr)
 	}
 
 	return resp, nil

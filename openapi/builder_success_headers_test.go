@@ -82,3 +82,22 @@ func TestBuildRejectsSuccessHeadersForAStatusWithoutResponse(t *testing.T) {
 		t.Fatalf("Build error = %v, want %q", err, want)
 	}
 }
+
+// TestBuildDocumentsResponseHeaders: headers attached to a response with
+// WithHeaders are documented like WithSuccessHeaders ones, as a string when
+// no schema type is given.
+func TestBuildDocumentsResponseHeaders(t *testing.T) {
+	ref := &apix.RouteRef{Method: apix.MethodGet, Path: "/items"}
+	apix.EnsureResponse(ref, http.StatusOK, reflect.TypeOf(shItem{}),
+		apix.WithHeaders(apix.HeaderRef{Name: "ETag", Description: "Version of the item", Required: true}))
+
+	doc, err := openapi.NewBuilder().Build([]*apix.RouteRef{ref})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	etag := doc.Paths.Value("/items").Get.Responses.Status(http.StatusOK).Value.Headers["ETag"]
+	if etag == nil || !etag.Value.Required || etag.Value.Description != "Version of the item" ||
+		!etag.Value.Schema.Value.Type.Is("string") {
+		t.Errorf("ETag = %+v, want a required string with its description", etag)
+	}
+}
