@@ -433,7 +433,7 @@ echoadapter.Post(adapter, "/api/users", createUser,
     apix.WithSecurity("OAuth2", "write:users"),
 )
 
-// Multiple security schemes
+// Either scheme: each WithSecurity adds an alternative requirement
 echoadapter.Post(adapter, "/api/admin/users", adminCreateUser,
     apix.WithSecurity("BearerAuth"),
     apix.WithSecurity("ApiKeyAuth"),
@@ -491,7 +491,7 @@ echoadapter.Post(adapter, "/api/users", createUser,
 ### Error Responses
 
 ```go
-// Standard 400 and 500 errors
+// 400, 422 and 500 with the shared ErrorResponse schema
 echoadapter.Post(adapter, "/api/users", createUser,
     apix.WithStandardErrors(),
 )
@@ -501,22 +501,20 @@ echoadapter.Get(adapter, "/api/users/:id", getUser,
     apix.WithNotFoundError("User not found"),
 )
 
-// Custom error responses
+// An error response with your own model
 echoadapter.Post(adapter, "/api/users", createUser,
-    apix.WithResponse(http.StatusConflict, &ConflictError{}, 
-        apix.WithDescription("User already exists")),
+    apix.WithCustomErrorResponse(http.StatusConflict, ConflictError{}, "User already exists"),
 )
 ```
 
 ### Multiple Response Types
 
+The handler's return type documents the success response. Error options add the other statuses:
+
 ```go
 echoadapter.Get(adapter, "/api/users/:id", getUser,
-    apix.WithResponse(http.StatusOK, &UserResponse{}),
-    apix.WithResponse(http.StatusNotFound, &ErrorResponse{},
-        apix.WithDescription("User not found")),
-    apix.WithResponse(http.StatusUnauthorized, &ErrorResponse{},
-        apix.WithDescription("Authentication required")),
+    apix.WithNotFoundError("User not found"),
+    apix.WithUnauthorizedError("Authentication required"),
 )
 ```
 
@@ -605,7 +603,7 @@ echoadapter.Post(adapter, "/api/users", createUser,
 
 ```go
 echoadapter.Post(adapter, "/api/users", createUser,
-    apix.WithStandardErrors(), // Adds 400, 500
+    apix.WithStandardErrors(), // Adds 400, 422, 500
     apix.WithNotFoundError("User not found"), // Adds 404
 )
 ```

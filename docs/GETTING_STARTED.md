@@ -468,8 +468,7 @@ jobs:
    ```go
    echoadapter.Post(adapter, "/api/users", createUser,
        apix.WithStandardErrors(),
-       apix.WithResponse(http.StatusConflict, &ErrorResponse{},
-           apix.WithDescription("User already exists")),
+       apix.WithConflictError("User already exists"),
    )
    ```
 

@@ -115,6 +115,9 @@ type RouteRef struct {
 
     // Parameter metadata
     Parameters []Parameter
+
+    // Handler type, for debugging and extensions
+    HandlerType reflect.Type
 }
 ```
 
@@ -315,6 +318,7 @@ func WithStandardErrors() RouteOption
 
 **Adds:**
 - 400 Bad Request
+- 422 Unprocessable Entity
 - 500 Internal Server Error
 
 **Example:**
@@ -745,13 +749,13 @@ Standard error response schema used for 4xx/5xx responses.
 
 ```go
 type ErrorResponse struct {
-    Error   string `json:"error"`
-    Message string `json:"message,omitempty"`
-    Code    string `json:"code,omitempty"`
+    Code    string `json:"code" description:"Error code identifier"`
+    Message string `json:"message" description:"Human-readable error message"`
+    Details any    `json:"details,omitempty" description:"Additional error details"`
 }
 ```
 
 **Usage:**
 
-Automatically included when using `WithStandardErrors()` or `WithNotFoundError()`.
+Every error option documents this schema, except `WithCustomErrorResponse`, which documents the model you pass.
 
