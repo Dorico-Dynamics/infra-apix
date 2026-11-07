@@ -595,7 +595,7 @@ var rows = []row{
 			}
 		}
 		s := c.requestSchema(c.operation(http.MethodPost, "/oauth2/token"), "application/x-www-form-urlencoded")
-		c.enum("grant_type", c.property(s, "grant_type"), "client_credentials", "refresh_token", "authorization_code")
+		c.enum("grant_type", c.property(s, "grant_type"), "client_credentials")
 	}},
 	{"R6b", "unsupported grant_type → 400 in RFC 6749 format (a per-operation error format)", func(c *check) {
 		c.oauth(token(c, url.Values{"grant_type": {"password"}, "client_id": {clientID}, "client_secret": {clientSecret}}), http.StatusBadRequest, "unsupported_grant_type")

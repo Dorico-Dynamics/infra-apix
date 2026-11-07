@@ -64,7 +64,7 @@ type apixGrantRequest struct {
 }
 
 type apixTokenRequest struct {
-	GrantType    string `json:"grant_type" validate:"required,oneof=client_credentials refresh_token authorization_code"`
+	GrantType    string `json:"grant_type" validate:"required,oneof=client_credentials"`
 	ClientID     string `json:"client_id" validate:"required"`
 	ClientSecret string `json:"client_secret" validate:"required"`
 	Scope        string `json:"scope,omitempty"`

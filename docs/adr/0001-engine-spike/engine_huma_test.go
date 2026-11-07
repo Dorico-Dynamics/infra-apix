@@ -142,7 +142,7 @@ type createGrantOutput struct {
 
 type tokenInput struct {
 	Body struct {
-		GrantType    string `json:"grant_type" enum:"client_credentials,refresh_token,authorization_code"`
+		GrantType    string `json:"grant_type" enum:"client_credentials"`
 		ClientID     string `json:"client_id" minLength:"1"`
 		ClientSecret string `json:"client_secret" minLength:"1"`
 		Scope        string `json:"scope,omitempty"`
