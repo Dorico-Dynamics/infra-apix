@@ -393,10 +393,10 @@ func WithSummary(summary string) RouteOption {
    - Commits follow conventional format
 
 5. **Review Process:**
-   - Maintainers will review your PR
+   - The maintainer reviews your PR
    - Address feedback and comments
    - Make requested changes
-   - PR will be merged once approved
+   - Only the maintainer approves and merges PRs
 
 ### PR Template
 
