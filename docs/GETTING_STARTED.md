@@ -71,17 +71,27 @@ cd my-api
 go mod init github.com/yourusername/my-api
 go get github.com/Infra-Forge/infra-apix
 go get github.com/labstack/echo/v4
+go get github.com/google/uuid
 ```
 
 ### Step 2: Define Your Models
 
-Create `main.go`:
+Create `main.go`. Its import block already lists what Steps 3 and 4 add:
 
 ```go
 package main
 
 import (
     "context"
+    "log"
+    "time"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    echoadapter "github.com/Infra-Forge/infra-apix/echo"
+    "github.com/Infra-Forge/infra-apix/runtime"
+    "github.com/google/uuid"
+    "github.com/labstack/echo/v4"
+    "github.com/labstack/echo/v4/middleware"
 )
 
 // Request model
@@ -103,12 +113,9 @@ type UserResponse struct {
 
 ### Step 3: Implement Your Handler
 
-```go
-import (
-    "time"
-    "github.com/google/uuid"
-)
+Add to `main.go`:
 
+```go
 func createUser(ctx context.Context, req *CreateUserRequest) (UserResponse, error) {
     // In a real app, you'd save to a database
     return UserResponse{
@@ -123,17 +130,9 @@ func createUser(ctx context.Context, req *CreateUserRequest) (UserResponse, erro
 
 ### Step 4: Set Up Echo and apix
 
-```go
-import (
-    "log"
-    
-    apix "github.com/Infra-Forge/infra-apix"
-    echoadapter "github.com/Infra-Forge/infra-apix/echo"
-    "github.com/Infra-Forge/infra-apix/runtime"
-    "github.com/labstack/echo/v4"
-    "github.com/labstack/echo/v4/middleware"
-)
+Add to `main.go`:
 
+```go
 func main() {
     // Create Echo instance
     e := echo.New()
@@ -166,7 +165,7 @@ func main() {
     log.Println("Server starting on :8080")
     log.Println("OpenAPI spec: http://localhost:8080/openapi.json")
     log.Println("Swagger UI: http://localhost:8080/swagger")
-    e.Start(":8080")
+    log.Fatal(e.Start(":8080"))
 }
 ```
 
@@ -240,7 +239,8 @@ func listUsers(ctx context.Context, _ *apix.NoBody) (UserListResponse, error) {
 }
 
 func getUser(ctx context.Context, _ *apix.NoBody) (UserResponse, error) {
-    // In a real app, fetch from database using path parameter
+    // In a real app, read the id (see "Reading Path Parameters" in
+    // FRAMEWORK_GUIDES.md) and fetch the user from the database
     return UserResponse{
         ID:        "user-1",
         Name:      "John Doe",
@@ -251,14 +251,24 @@ func getUser(ctx context.Context, _ *apix.NoBody) (UserResponse, error) {
 }
 
 func updateUser(ctx context.Context, req *UpdateUserRequest) (UserResponse, error) {
-    // In a real app, update in database
-    return UserResponse{
+    // In a real app, load the user and save the fields the request sets
+    user := UserResponse{
         ID:        "user-1",
-        Name:      *req.Name,
+        Name:      "John Doe",
         Email:     "john@example.com",
         Age:       30,
         CreatedAt: time.Now().Format(time.RFC3339),
-    }, nil
+    }
+    if req.Name != nil {
+        user.Name = *req.Name
+    }
+    if req.Email != nil {
+        user.Email = *req.Email
+    }
+    if req.Age != nil {
+        user.Age = *req.Age
+    }
+    return user, nil
 }
 
 func deleteUser(ctx context.Context, _ *apix.NoBody) (apix.NoBody, error) {

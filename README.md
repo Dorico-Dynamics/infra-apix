@@ -46,14 +46,15 @@ Choose your framework: [Echo](#echo-example) | [Chi](#chi-example) | [Gorilla/Mu
 
 #### 1. Define your models and handlers
 
+Create `items.go`:
+
 ```go
 package main
 
 import (
     "context"
+
     apix "github.com/Infra-Forge/infra-apix"
-    echoadapter "github.com/Infra-Forge/infra-apix/echo"
-    "github.com/labstack/echo/v4"
 )
 
 type CreateItemRequest struct {
@@ -75,11 +76,29 @@ func createItemHandler(ctx context.Context, req *CreateItemRequest) (ItemRespons
         CreatedAt: "2025-01-01T00:00:00Z",
     }, nil
 }
+
+func listItemsHandler(ctx context.Context, _ *apix.NoBody) ([]ItemResponse, error) {
+    return []ItemResponse{{ID: "item-123", Name: "Notebook", CreatedAt: "2025-01-01T00:00:00Z"}}, nil
+}
 ```
 
-### 2. Register routes with the Echo adapter
+#### 2. Register routes and serve the OpenAPI document
+
+Create `main.go`:
 
 ```go
+package main
+
+import (
+    "log"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    echoadapter "github.com/Infra-Forge/infra-apix/echo"
+    "github.com/Infra-Forge/infra-apix/runtime"
+    "github.com/getkin/kin-openapi/openapi3"
+    "github.com/labstack/echo/v4"
+)
+
 func main() {
     e := echo.New()
     adapter := echoadapter.New(e)
@@ -91,53 +110,51 @@ func main() {
         apix.WithSecurity("BearerAuth"),
     )
 
-    echoadapter.Get(adapter, "/api/items/:id", getItemHandler,
-        apix.WithSummary("Get item by ID"),
+    echoadapter.Get(adapter, "/api/items", listItemsHandler,
+        apix.WithSummary("List items"),
         apix.WithTags("items"),
     )
 
-    e.Start(":8080")
-}
-```
-
-### 3. Serve OpenAPI spec at runtime
-
-```go
-import (
-    "github.com/Infra-Forge/infra-apix/runtime"
-)
-
-func main() {
-    // ... register routes ...
-
-    // Serve OpenAPI spec
-    handler, _ := runtime.NewHandler(runtime.Config{
+    // Serve the OpenAPI document and Swagger UI
+    handler, err := runtime.NewHandler(runtime.Config{
         Title:           "My API",
         Version:         "1.0.0",
         Format:          "json",
         EnableSwaggerUI: true,
-        Servers:         []string{"https://api.example.com"},
+        // Declare every scheme a route names with apix.WithSecurity
+        SecuritySchemes: openapi3.SecuritySchemes{
+            "BearerAuth": &openapi3.SecuritySchemeRef{Value: openapi3.NewJWTSecurityScheme()},
+        },
     })
+    if err != nil {
+        log.Fatal(err)
+    }
     handler.RegisterEcho(e)
 
     // Now available at:
     // - GET /openapi.json (spec)
     // - GET /swagger (Swagger UI)
-
-    e.Start(":8080")
+    log.Fatal(e.Start(":8080"))
 }
 ```
 
+Run it with `go mod tidy && go run .`.
+
 ### Chi Example
+
+With `items.go` from the Echo example, replace `main.go` with:
 
 ```go
 package main
 
 import (
-    "context"
+    "log"
     "net/http"
+
     apix "github.com/Infra-Forge/infra-apix"
     chiadapter "github.com/Infra-Forge/infra-apix/chi"
+    "github.com/Infra-Forge/infra-apix/runtime"
+    "github.com/getkin/kin-openapi/openapi3"
     "github.com/go-chi/chi/v5"
 )
 
@@ -152,33 +169,46 @@ func main() {
         apix.WithSecurity("BearerAuth"),
     )
 
-    chiadapter.Get(adapter, "/api/items/{id}", getItemHandler,
-        apix.WithSummary("Get item by ID"),
+    chiadapter.Get(adapter, "/api/items", listItemsHandler,
+        apix.WithSummary("List items"),
         apix.WithTags("items"),
     )
 
-    // Serve OpenAPI spec
-    handler, _ := runtime.NewHandler(runtime.Config{
+    // Serve the OpenAPI document and Swagger UI
+    handler, err := runtime.NewHandler(runtime.Config{
         Title:           "My API",
         Version:         "1.0.0",
         EnableSwaggerUI: true,
+        SecuritySchemes: openapi3.SecuritySchemes{
+            "BearerAuth": &openapi3.SecuritySchemeRef{Value: openapi3.NewJWTSecurityScheme()},
+        },
     })
-    handler.RegisterHTTP(http.NewServeMux()) // or use Chi router
+    if err != nil {
+        log.Fatal(err)
+    }
+    docs := http.NewServeMux()
+    handler.RegisterHTTP(docs)
+    r.Mount("/", docs) // paths no other route matches
 
-    http.ListenAndServe(":8080", r)
+    log.Fatal(http.ListenAndServe(":8080", r))
 }
 ```
 
 ### Gorilla/Mux Example
 
+With `items.go` from the Echo example, replace `main.go` with:
+
 ```go
 package main
 
 import (
-    "context"
+    "log"
     "net/http"
+
     apix "github.com/Infra-Forge/infra-apix"
     muxadapter "github.com/Infra-Forge/infra-apix/mux"
+    "github.com/Infra-Forge/infra-apix/runtime"
+    "github.com/getkin/kin-openapi/openapi3"
     "github.com/gorilla/mux"
 )
 
@@ -193,20 +223,28 @@ func main() {
         apix.WithSecurity("BearerAuth"),
     )
 
-    muxadapter.Get(adapter, "/api/items/{id}", getItemHandler,
-        apix.WithSummary("Get item by ID"),
+    muxadapter.Get(adapter, "/api/items", listItemsHandler,
+        apix.WithSummary("List items"),
         apix.WithTags("items"),
     )
 
-    // Serve OpenAPI spec
-    handler, _ := runtime.NewHandler(runtime.Config{
+    // Serve the OpenAPI document and Swagger UI
+    handler, err := runtime.NewHandler(runtime.Config{
         Title:           "My API",
         Version:         "1.0.0",
         EnableSwaggerUI: true,
+        SecuritySchemes: openapi3.SecuritySchemes{
+            "BearerAuth": &openapi3.SecuritySchemeRef{Value: openapi3.NewJWTSecurityScheme()},
+        },
     })
-    handler.RegisterHTTP(http.NewServeMux()) // or use Mux router
+    if err != nil {
+        log.Fatal(err)
+    }
+    docs := http.NewServeMux()
+    handler.RegisterHTTP(docs)
+    r.PathPrefix("/").Handler(docs) // registered last, so it gets what the routes above do not
 
-    http.ListenAndServe(":8080", r)
+    log.Fatal(http.ListenAndServe(":8080", r))
 }
 ```
 
