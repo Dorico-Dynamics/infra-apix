@@ -12,7 +12,7 @@
 - **Go ecosystem**: swaggo uses comment overrides; goa/ogen are DSL/spec-first. Kin-openapi is the building block.
 - **adopted strategy**:
   - Route options such as `WithRequestOverride`, `WithExplicitRequestModel` and `WithSuccessHeaders`, and the response options `WithExplicitModel` and `WithResponseExample`, define schemas, content types, headers and examples manually when necessary.
-  - Plugins (`apix.RegisterPlugin`), whose hooks see each route, each schema and the built document, mirror Spring's OpenApiCustomiser.
+  - Plugins (`apix.RegisterPlugin`), whose hooks see each route, each named struct's component schema and the built document, mirror Spring's OpenApiCustomiser.
   - Config file (future milestone) to map `method:path` to overrides without code changes.
 
 ## Implementation Status
