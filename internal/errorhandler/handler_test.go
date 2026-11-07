@@ -345,3 +345,49 @@ func TestAFailedErrorWriteIsLoggedAtWarn(t *testing.T) {
 		t.Errorf("line = %v, want %v", line, want)
 	}
 }
+
+// TestACommittedFailureAlwaysPrints: an error that came after the response
+// started is logged at Error with the request's ids and context, to the
+// configured logger or else to slog.Default(), since apix cannot tell whether
+// it was a failed write or a failed encoding.
+func TestACommittedFailureAlwaysPrints(t *testing.T) {
+	var std bytes.Buffer
+	prev, flags := log.Writer(), log.Flags()
+	log.SetOutput(&std)
+	log.SetFlags(0)
+	t.Cleanup(func() { log.SetOutput(prev); log.SetFlags(flags) })
+
+	var lines bytes.Buffer
+	handler := &contextRecorder{Handler: slog.NewJSONHandler(&lines, nil)}
+	logging.Configure(slog.New(handler))
+	t.Cleanup(func() { logging.Configure(nil) })
+
+	type traceKey struct{}
+	r := httptest.NewRequest("POST", "/ledger", nil)
+	r.Header.Set("X-Request-ID", "req-1")
+	r.Header.Set("X-Correlation-ID", "corr-1")
+	ctx := context.WithValue(r.Context(), traceKey{}, "trace-1")
+	LogCommittedFailure(ctx, RequestOf(r), errors.New("encoder: field 3 failed"))
+
+	var line map[string]any
+	if err := json.Unmarshal(lines.Bytes(), &line); err != nil {
+		t.Fatalf("line is not one JSON object: %v: %q", err, lines.String())
+	}
+	delete(line, "time")
+	want := map[string]any{
+		"level": "ERROR", "msg": "response failed after it was committed",
+		"method": "POST", "path": "/ledger", "request_id": "req-1", "correlation_id": "corr-1", "error": "encoder: field 3 failed",
+	}
+	if !reflect.DeepEqual(line, want) {
+		t.Errorf("line = %v, want %v", line, want)
+	}
+	if handler.ctx == nil || handler.ctx.Value(traceKey{}) != "trace-1" {
+		t.Error("the handler must receive the request's context")
+	}
+
+	logging.Configure(nil)
+	LogCommittedFailure(context.Background(), RequestOf(httptest.NewRequest("GET", "/ledger", nil)), errors.New("boom"))
+	if want := "ERROR response failed after it was committed method=GET path=/ledger error=boom\n"; std.String() != want {
+		t.Errorf("log = %q, want %q", std.String(), want)
+	}
+}

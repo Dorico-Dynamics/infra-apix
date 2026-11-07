@@ -9,12 +9,18 @@ import (
 	"github.com/Infra-Forge/infra-apix/internal/errorhandler"
 	"github.com/Infra-Forge/infra-apix/internal/requestbody"
 	"github.com/gin-gonic/gin"
+	ginjson "github.com/gin-gonic/gin/codec/json"
 )
 
 // RequestDecoder decodes the HTTP request body into dst, enforcing validation rules.
 type RequestDecoder func(ctx context.Context, c *gin.Context, dst any) error
 
 // ResponseEncoder writes the response payload using the provided status code.
+// An error it returns before the response is written (c.Writer.Written()) is
+// answered by the error handler. Once the status or part of the body is out,
+// nothing more can be sent, so the adapter logs the error at Error level
+// instead. c.JSON never returns its marshal error: it records it in c.Errors
+// and sends the status with an empty body.
 type ResponseEncoder func(ctx context.Context, c *gin.Context, status int, payload any, ref *apix.RouteRef) error
 
 // ErrorHandler handles errors from the typed handler.
@@ -139,9 +145,7 @@ func buildGinHandler[TReq any, TResp any](a *GinAdapter, handler apix.HandlerFun
 			return
 		}
 
-		if err := a.encode(ctx, c, ref.SuccessStatus, resp, ref); err != nil {
-			a.handleError(ctx, c, err)
-		}
+		a.respond(ctx, c, resp, ref)
 	}
 }
 
@@ -152,11 +156,25 @@ func (a *GinAdapter) decode(ctx context.Context, c *gin.Context, dst any) error 
 	return defaultDecoder(ctx, c, dst)
 }
 
-func (a *GinAdapter) encode(ctx context.Context, c *gin.Context, status int, payload any, ref *apix.RouteRef) error {
-	if enc := a.opts.ResponseEncoder; enc != nil {
-		return enc(ctx, c, status, payload, ref)
+// respond sends the handler's result. An encoder error is answered by the
+// error handler only while nothing has been written. Once a custom encoder has
+// started the response, its error is logged instead: another response would
+// be appended to the first.
+func (a *GinAdapter) respond(ctx context.Context, c *gin.Context, payload any, ref *apix.RouteRef) {
+	enc := a.opts.ResponseEncoder
+	if enc == nil {
+		if err := defaultEncoder(c, ref.SuccessStatus, payload); err != nil {
+			a.handleError(ctx, c, err)
+		}
+		return
 	}
-	return defaultEncoder(ctx, c, status, payload)
+	if err := enc(ctx, c, ref.SuccessStatus, payload, ref); err != nil {
+		if c.Writer.Written() {
+			errorhandler.LogCommittedFailure(ctx, errorhandler.RequestOf(c.Request), err)
+			return
+		}
+		a.handleError(ctx, c, err)
+	}
 }
 
 func (a *GinAdapter) handleError(ctx context.Context, c *gin.Context, err error) {
@@ -176,12 +194,25 @@ func defaultDecoder(ctx context.Context, c *gin.Context, dst any) error {
 	return requestbody.Decode(c.Request.Body, dst)
 }
 
-func defaultEncoder(ctx context.Context, c *gin.Context, status int, payload any) error {
+// defaultEncoder sends payload as JSON with the bytes and Content-Type of
+// c.JSON, gin's configured codec included. Unlike c.JSON, it marshals before
+// the status is written and returns the error, so a payload that cannot be
+// encoded can still be answered with an error response. A failed write is
+// logged as a library event and not returned.
+func defaultEncoder(c *gin.Context, status int, payload any) error {
 	if status == http.StatusNoContent || payload == nil || isNoBody(reflect.TypeOf(payload)) {
 		c.Status(status)
 		return nil
 	}
-	c.JSON(status, payload)
+	body, err := ginjson.API.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	c.Header("Content-Type", "application/json; charset=utf-8")
+	c.Status(status)
+	if _, err := c.Writer.Write(body); err != nil {
+		errorhandler.LogWriteFailed(c.Request, "response write failed", err)
+	}
 	return nil
 }
 
