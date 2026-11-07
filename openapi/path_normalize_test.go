@@ -15,6 +15,7 @@ func TestNormalizePath(t *testing.T) {
 		{"/api/users/{id:[0-9]+}", "/api/users/{id}"},
 		{"/api/users/{id:[0-9]{3}}/posts/{slug:[a-z-]+}", "/api/users/{id}/posts/{slug}"},
 		{"/health", "/health"},
+		{"/cafés/:id", "/cafés/{id}"},
 	}
 
 	for _, tt := range tests {

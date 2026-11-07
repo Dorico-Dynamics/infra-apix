@@ -925,8 +925,9 @@ func normalizePath(path string) string {
 			}
 			normalized.WriteRune('}')
 		} else {
-			// Regular character or already in {param} format
-			normalized.WriteRune(rune(ch))
+			// Regular byte or already in {param} format. A byte, not a rune:
+			// rune(ch) would re-encode each byte of a multi-byte character.
+			normalized.WriteByte(ch)
 			i++
 		}
 	}
