@@ -1,5 +1,13 @@
 # Execution Plan — apix Go API Documentation Library
 
+> **Historical, 2026-11-07.** This was the execution plan for apix v1.
+> Milestones 1 and 2 shipped. The rest of Milestone 3, and everything after
+> it, is tracked as GitHub issues. See the
+> [roadmap](https://github.com/Dorico-Dynamics/infra-apix/issues/52) and the
+> README's [Status and roadmap](README.md#status-and-roadmap). The engine of
+> v2 is decided in [ADR-0001](docs/adr/0001-engine-decision.md). This file is
+> kept for its research notes and is no longer updated.
+
 ## Context & Research Findings
 
 ### Why a New Library

@@ -608,6 +608,7 @@ apix.SetLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 - **[OpenAPI Generation](docs/OPENAPI_GENERATION.md)** - Advanced OpenAPI features
 - **[CLI Usage](docs/CLI_USAGE.md)** - Command-line tool documentation
 - **[Migration Guide](MIGRATION_GUIDE.md)** - Migrating from swaggo
+- **[Architecture Decisions](docs/adr/)** - Recorded decisions, starting with the engine of v2
 - **[Contributing](docs/CONTRIBUTING.md)** - How to contribute
 
 ### 💡 Examples
@@ -626,36 +627,80 @@ Each example demonstrates:
 - Security schemes
 - Complex types (UUID, decimal.Decimal, time.Time)
 
-## Roadmap
+## Status and roadmap
 
-### ✅ Milestone 1 - Complete
-- Echo adapter with typed handlers
-- Struct tag parsing, nullable types
-- OpenAPI 3.1 builder with deterministic output
-- CLI (`generate`, `spec-guard`); it finds no routes yet (see [CLI Usage](docs/CLI_USAGE.md))
-- Runtime endpoints with Swagger UI
+apix v1 is the current release line, released from `main`
+([releases](https://github.com/Dorico-Dynamics/infra-apix/releases)).
 
-### ✅ Milestone 2 - Complete
-- ✅ Chi adapter
-- ✅ Gorilla/Mux adapter
-- ✅ Gin adapter
-- ✅ Fiber adapter
-- ✅ Shared error schema with standard 4xx/5xx responses
-- ✅ Golden tests for spec validation
-- ✅ Integration tests for all 5 frameworks
-- ✅ Comprehensive documentation
+apix v2 will be a new major version with its own engine, built in this
+repository ([ADR-0001](docs/adr/0001-engine-decision.md)). Its design comes
+first, as ADR-0002 ([#30](https://github.com/Dorico-Dynamics/infra-apix/issues/30)).
+v1 keeps receiving fixes and additive changes while v2 is built.
 
-### 🚧 Milestone 3 - In progress
-- ✅ Structured examples via tags/helpers
-- ✅ Multipart/form-data and form-urlencoded request bodies in the spec
-- ✅ Plugin hooks for custom metadata
-- ✅ Structured logging (`apix.SetLogger`)
-- Typed query/header parameter structs
-- Middleware auto-detection for security
-- Pagination headers, ETag support
-- Multipart and form decoding in the adapters
-- Metrics
-- A CLI that loads your routes
+The [roadmap](https://github.com/Dorico-Dynamics/infra-apix/issues/52) lists
+the remaining work in three milestones:
+
+- [v1.x](https://github.com/Dorico-Dynamics/infra-apix/milestone/1): additive changes to v1
+- [v2.0.0](https://github.com/Dorico-Dynamics/infra-apix/milestone/2): the native engine
+- [v2.x](https://github.com/Dorico-Dynamics/infra-apix/milestone/3): API conventions, and contract outputs and tooling
+
+### What v1 does not do yet
+
+- **Inputs.** A handler receives the context and the decoded body. Path,
+  query and header values are not bound to fields: declare them with
+  `WithParameter`, and read them as shown in
+  [Reading Path and Query Parameters](docs/FRAMEWORK_GUIDES.md#reading-path-and-query-parameters).
+  Typed inputs:
+  [#33](https://github.com/Dorico-Dynamics/infra-apix/issues/33).
+- **Validation.** It is off by default, and each adapter turns it on
+  differently:
+  - chi and gorilla/mux validate with the adapter's `Validator`;
+  - echo validates with Echo's `Validator`;
+  - gin and fiber validate only through a custom `Decoder`.
+
+  A failure is a 422 that carries the validator's message. Validation on
+  by default comes in v2:
+  [#34](https://github.com/Dorico-Dynamics/infra-apix/issues/34).
+- **Constraints in the document.** The document takes only `required` from
+  `validate` and `binding` tags, and `WithParameter` has no constraint
+  fields. Bounds, lengths, enums, formats and defaults are therefore missing.
+  On v1:
+  [#26](https://github.com/Dorico-Dynamics/infra-apix/issues/26) and
+  [#27](https://github.com/Dorico-Dynamics/infra-apix/issues/27). In v2:
+  [#35](https://github.com/Dorico-Dynamics/infra-apix/issues/35).
+- **Request bodies.** The default decoders read JSON and ignore
+  Content-Type. `WithMultipartFormData` and `WithFormURLEncoded` document
+  those bodies, but decoding them needs a custom `Decoder`:
+  [#36](https://github.com/Dorico-Dynamics/infra-apix/issues/36),
+  [#37](https://github.com/Dorico-Dynamics/infra-apix/issues/37).
+- **Responses.** The status is fixed per route. A header such as `ETag`
+  needs a custom `ResponseEncoder` or the response writer. `[]byte` is
+  documented as base64, which does not describe a raw download:
+  [#38](https://github.com/Dorico-Dynamics/infra-apix/issues/38),
+  [#39](https://github.com/Dorico-Dynamics/infra-apix/issues/39).
+- **Errors.** The default error format differs by adapter:
+  - plain text on chi and gorilla/mux;
+  - `{"error": …}` JSON on gin and fiber;
+  - Echo's error handler on echo.
+
+  Set `UseProblemDetails` for RFC 9457, or set an `ErrorHandler`:
+  [#40](https://github.com/Dorico-Dynamics/infra-apix/issues/40).
+- **OpenAPI versions.** The document declares OpenAPI 3.1.0 but marks
+  nullable schemas with 3.0's `nullable: true`, and there is no 3.0.3
+  rendition:
+  [#43](https://github.com/Dorico-Dynamics/infra-apix/issues/43).
+- **Routers.** There is no adapter for net/http's `ServeMux`
+  ([#32](https://github.com/Dorico-Dynamics/infra-apix/issues/32)).
+  `runtime` imports echo v4 for `RegisterEcho`, so every program that
+  imports `runtime` links echo
+  ([#45](https://github.com/Dorico-Dynamics/infra-apix/issues/45)).
+- **One API per process.** All routes go into one process-wide registry:
+  [#42](https://github.com/Dorico-Dynamics/infra-apix/issues/42).
+- **CLI.** `apix generate` and `apix spec-guard` find no routes
+  ([CLI Usage](docs/CLI_USAGE.md)). Write the document from a program of
+  your own instead:
+  [#28](https://github.com/Dorico-Dynamics/infra-apix/issues/28),
+  [#29](https://github.com/Dorico-Dynamics/infra-apix/issues/29).
 
 ## Testing
 
@@ -694,6 +739,6 @@ MIT License, copyright [Dorico Dynamics LDA](https://doricod.co.mz) - see [LICEN
 
 ---
 
-**Status**: v1, released from `main` ([releases](https://github.com/Dorico-Dynamics/infra-apix/releases)); Milestones 1 and 2 complete, Milestone 3 in progress
+**Status**: v1 is the current release line; v2, with a native engine, is in design ([Status and roadmap](#status-and-roadmap))
 **Maintainer**: Teodorico Mazivila
 **Repository**: [github.com/Dorico-Dynamics/infra-apix](https://github.com/Dorico-Dynamics/infra-apix)

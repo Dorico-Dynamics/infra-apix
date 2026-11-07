@@ -2,11 +2,13 @@
 
 ## Status
 
-Proposed. Awaiting the maintainer's decision.
+Accepted on 2026-11-07: Option A, a native engine. The proposal recommended
+Option B. That recommendation is kept below, under
+[The proposal's recommendation (not adopted)](#the-proposals-recommendation-not-adopted).
 
 ## Date
 
-2026-11-07
+Proposed and accepted on 2026-11-07.
 
 ## Context
 
@@ -344,7 +346,103 @@ Suppose the rewrite took A to full marks on conformance, adapters and spec
 quality. Against B with the operation-level media-type check, A would still
 total 4.600 to B's 4.800. The gap is the code A must own.
 
-## Decision (proposed)
+## Decision
+
+**apix v2 gets its own engine, built in this repository (Option A).**
+
+The weighted evaluation favours huma: 4.706 against 3.975 today, and 4.800
+against 4.600 if the native engine closed every measured gap. Its criteria
+measure how well each engine serves six routes, and they count the engine
+apix owns only as a cost ("Code we own", 10%). The decision weighs what the
+criteria leave out:
+
+- **The engine is the product.** apix is an open-source library, and its
+  engine is what it offers. On huma, apix v2 would be a configuration layer
+  over another project's engine, and its users would be better served by
+  huma itself.
+- **Control over what the spike had to work around.** On huma:
+  - the error format lives in process-wide constructors;
+  - field codes are parsed from English messages;
+  - the request's Content-Type alone picks the decoder;
+  - defaults that echo input and errors must be switched off.
+
+  A native engine sets these by design, and its maintainers and
+  contributors can change them.
+- **`validate` tags stay the single source of truth.** go-playground's tags
+  are widely used in Go web code (gin's `binding` tags run on the same
+  library), and huma reads none of them. Under a native engine, services
+  keep their tags (583 in the three measured services), and `required`
+  keeps its meaning.
+
+Lock-in is not the reason, because huma's MIT licence would allow a fork.
+The reason is ownership of the core model.
+
+The engine is built under these conditions:
+
+1. One set of tags drives both runtime validation and the document, so the
+   two cannot disagree.
+2. The spike becomes the acceptance suite of v2
+   ([#31](https://github.com/Dorico-Dynamics/infra-apix/issues/31)):
+   - it gains an apix v2 column and runs in CI against every adapter;
+   - huma stays as a reference column, so the comparison is measured, not
+     claimed;
+   - v2.0.0 ships when every row passes on every adapter and each benchmark
+     stays within 10% of v1 per request.
+3. apix owns the security of decoding and binding:
+   - strict defaults: 415, 413, and unknown fields refused;
+   - fuzz tests for every decoder and binder
+     ([#47](https://github.com/Dorico-Dynamics/infra-apix/issues/47));
+   - 5xx responses that never echo internals.
+4. huma's designs may be studied and reused under its MIT licence. Code
+   taken from huma keeps its copyright notice.
+5. v1 keeps receiving fixes and additive changes while v2 is built.
+
+ADR-0002 will record the engine's design
+([#30](https://github.com/Dorico-Dynamics/infra-apix/issues/30)). The
+remaining work is tracked in the
+[roadmap](https://github.com/Dorico-Dynamics/infra-apix/issues/52).
+
+## Consequences
+
+### Positive
+
+- apix owns its core model. Inputs, validation, decoding, errors and the
+  document come from one codebase that its maintainers and contributors can
+  change.
+- Services keep their `validate` tags, and field codes keep v1's meaning: an
+  empty required string is still reported as `required`.
+- apix v2 depends on no engine. Each router adapter becomes its own module,
+  so a service links only its router.
+- One request pipeline replaces v1's five adapter copies.
+
+### Negative
+
+- v2 takes longer to reach what huma does today. It needs the ten failing
+  rows closed, typed inputs, and the conformance suite passing on every
+  adapter. The work is tracked in the
+  [v2.0.0 milestone](https://github.com/Dorico-Dynamics/infra-apix/milestone/2).
+- apix maintains the whole engine: about 4,000 lines of non-test code today
+  (the count under [Weighted evaluation](#weighted-evaluation)), and more
+  in v2.
+- apix owns the security surface of decoding and binding.
+- Until v2 ships, v1's limitations stay. The README lists them under
+  [Status and roadmap](../../README.md#status-and-roadmap).
+
+### Risks
+
+| Risk | Mitigation |
+|---|---|
+| v2 takes longer than planned, and services keep v1's workarounds meanwhile | v1.x ships additive changes in the meantime ([#26](https://github.com/Dorico-Dynamics/infra-apix/issues/26), [#27](https://github.com/Dorico-Dynamics/infra-apix/issues/27)), and the roadmap is public |
+| The native engine is less correct or slower than the alternative | The acceptance suite keeps huma as a reference column. v2 must pass every row and stay within 10% of v1 |
+| A decoder or binder accepts input it should refuse | Strict defaults, fuzz tests in CI ([#47](https://github.com/Dorico-Dynamics/infra-apix/issues/47)), and conformance rows for 413, 415 and unknown fields |
+| The scope of v2.0.0 keeps growing | ADR-0002 fixes the scope. API conventions and contract outputs come in later v2 releases ([v2.x](https://github.com/Dorico-Dynamics/infra-apix/milestone/3)) |
+
+## The proposal's recommendation (not adopted)
+
+The proposal of 2026-11-07 recommended Option B. Its recommendation, and the
+consequences and risks it listed, are kept as written.
+
+### Recommendation
 
 **Adopt huma v2 as the engine of apix v2 (Option B).**
 
@@ -370,9 +468,9 @@ Adoption comes with these conditions:
 5. Write the migration codemods: `validate` tags to huma tags, and context
    locators to typed inputs.
 
-## Consequences
+### Consequences it listed
 
-### Positive
+#### Positive
 
 - v2 gets typed inputs, documented constraints, multipart and form bodies,
   per-operation caps and middleware, ServeMux, OpenAPI 3.0.3 and `x-`
@@ -381,7 +479,7 @@ Adoption comes with these conditions:
 - Per-request cost stays within 9% of v1 in both benchmarks.
 - v2 work shrinks to glue, the conformance suite and codemods.
 
-### Negative
+#### Negative
 
 - apix v2 depends on a third-party engine: its release cadence, its bugs and
   its API changes.
@@ -391,7 +489,7 @@ Adoption comes with these conditions:
 - Field codes are derived from huma's message formats.
 - `humaecho` and `humafiber` link two major versions of their router.
 
-### Risks
+#### Risks
 
 | Risk | Mitigation |
 |---|---|
