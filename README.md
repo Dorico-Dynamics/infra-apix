@@ -4,7 +4,7 @@
 
 [![Go Version](https://img.shields.io/badge/go-1.27.3+-blue.svg)](https://go.dev/dl/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen.svg)](coverage.out)
+[![Test & Lint](https://github.com/Dorico-Dynamics/infra-apix/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Dorico-Dynamics/infra-apix/actions/workflows/test.yml)
 
 `apix` is a Go library that generates deterministic OpenAPI 3.1 specifications directly from your typed HTTP handlers. No comments, no YAML editing, no drift—just code.
 
@@ -616,31 +616,34 @@ Each example demonstrates:
 
 ## Roadmap
 
-### ✅ Milestone 1 (v0.1) - Complete
+### ✅ Milestone 1 - Complete
 - Echo adapter with typed handlers
 - Struct tag parsing, nullable types
 - OpenAPI 3.1 builder with deterministic output
-- CLI (`generate`, `spec-guard`)
+- CLI (`generate`, `spec-guard`); it finds no routes yet (see [CLI Usage](docs/CLI_USAGE.md))
 - Runtime endpoints with Swagger UI
 
-### ✅ Milestone 2 (v0.2) - Complete
-- ✅ Chi adapter (88% test coverage)
-- ✅ Gorilla/Mux adapter (88% test coverage)
-- ✅ Gin adapter (87.5% test coverage)
-- ✅ Fiber adapter (86.9% test coverage)
+### ✅ Milestone 2 - Complete
+- ✅ Chi adapter
+- ✅ Gorilla/Mux adapter
+- ✅ Gin adapter
+- ✅ Fiber adapter
 - ✅ Shared error schema with standard 4xx/5xx responses
 - ✅ Golden tests for spec validation
 - ✅ Integration tests for all 5 frameworks
 - ✅ Comprehensive documentation
 
-### 🔮 Milestone 3 (v0.3) - Planned
+### 🚧 Milestone 3 - In progress
+- ✅ Structured examples via tags/helpers
+- ✅ Multipart/form-data and form-urlencoded request bodies in the spec
+- ✅ Plugin hooks for custom metadata
+- ✅ Structured logging (`apix.SetLogger`)
 - Typed query/header parameter structs
 - Middleware auto-detection for security
 - Pagination headers, ETag support
-- Structured examples via tags/helpers
-- Multipart/form-data support
-- Plugin hooks for custom metadata
-- Observability (logging, metrics)
+- Multipart and form decoding in the adapters
+- Metrics
+- A CLI that loads your routes
 
 ## Testing
 
@@ -655,9 +658,7 @@ make cover
 make cover-html
 ```
 
-Current coverage: **85%+** (exceeds 80% target)
-- Core: 89%
-- All framework adapters: 82.5%-88%
+CI runs the tests with the race detector on every push and pull request to `main`, and fails when total coverage is below 80%.
 
 ## Contributing
 
@@ -681,6 +682,6 @@ MIT License - see [LICENSE](LICENSE) for details
 
 ---
 
-**Status**: Milestone 1 & 2 complete (5 framework adapters, comprehensive documentation)
+**Status**: v1, released from `main` ([releases](https://github.com/Dorico-Dynamics/infra-apix/releases)); Milestones 1 and 2 complete, Milestone 3 in progress
 **Maintainer**: Teodorico Mazivila
 **Repository**: [github.com/Dorico-Dynamics/infra-apix](https://github.com/Dorico-Dynamics/infra-apix)
