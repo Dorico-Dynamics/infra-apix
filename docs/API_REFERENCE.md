@@ -609,7 +609,7 @@ type Config struct {
     SpecPath      string // Default: "/openapi.json", or "/openapi.yaml" for YAML
     SwaggerUIPath string // Default: "/swagger"
 
-    // Swagger UI
+    // Swagger UI: the embedded page and its files (see Swagger UI below)
     EnableSwaggerUI bool
 
     // Advanced customization
@@ -659,6 +659,54 @@ handler.RegisterEcho(e)
 // For other frameworks
 mux := http.NewServeMux()
 handler.RegisterHTTP(mux)
+```
+
+### Swagger UI
+
+With `EnableSwaggerUI` set, `RegisterHTTP` and `RegisterEcho` serve a Swagger UI page at `SwaggerUIPath` and the files it loads below that path:
+
+| Path (default `SwaggerUIPath`) | Content |
+|--------------------------------|---------|
+| `/swagger` | The page |
+| `/swagger/swagger-ui.css`, `/swagger/swagger-ui-bundle.js` | swagger-ui-dist 5.34.1, embedded in the binary and unmodified. Its Apache-2.0 `LICENSE` and `NOTICE` are in `internal/swaggerui/swagger-ui-dist/` |
+| `/swagger/swagger-initializer.js` | Starts Swagger UI with the document at `SpecPath` |
+
+The page loads nothing from another origin and runs no inline script, so it is served with this Content-Security-Policy:
+
+```text
+default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:;
+connect-src 'self' <origins of Servers>; media-src 'self' <origins of Servers>;
+frame-ancestors 'none'; base-uri 'none'; form-action 'none'
+```
+
+- **Requests.** The page fetches the document, and Try it out sends requests to the server selected in the page. `connect-src` admits the page's origin and the origin of each absolute `http` or `https` URL in `Servers`. A relative server is the page's origin. A server that `CustomizeBuilder` or a plugin adds is not admitted, so add it to `Servers`. A URL with server variables or an IPv6 address cannot be named in a policy, so requests to it are blocked.
+- **Images and audio.** The stylesheet's icons are `data:` URLs, and image responses render from `blob:` URLs. Images in descriptions load only from the page's origin. Audio responses play from the request's URL, so `media-src` admits the same origins as `connect-src`.
+- **Caching.** The page is sent with `Cache-Control: no-store`. The files are sent with an `ETag` and `Cache-Control: no-cache`, so a browser revalidates them and receives `304 Not Modified`. Every response carries `X-Content-Type-Options: nosniff`.
+- **Other routers.** Mount the `ServeMux` that `RegisterHTTP` filled for the page's path and the paths below it: `r.Mount("/", mux)` with chi, `r.PathPrefix("/swagger").Handler(mux)` with gorilla/mux, and both `r.Any("/swagger", h)` and `r.Any("/swagger/*file", h)` with Gin, where `h` is `gin.WrapH(mux)`.
+- **Write failures.** A page or file the client did not receive in full is logged like the document (see [Logging](#logging)).
+
+`runtime.RenderSwaggerUI(specPath)` returns a standalone page that loads the same release from unpkg.com, checked with Subresource Integrity. It starts Swagger UI from an inline script, so a Content-Security-Policy must allow that script.
+
+### Serving the Document and the UI
+
+The document describes every route registered with apix, internal ones included, with their parameters, schemas and security requirements. The UI makes those routes callable from a browser. Choose one mode per environment:
+
+| Mode | When | How |
+|------|------|-----|
+| Off | Production, unless the API is public | Leave `EnableSwaggerUI` unset and do not register the handler on the public router. Publish a document generated at build time instead, with a program that registers your routes ([Programmatic Generation](OPENAPI_GENERATION.md#programmatic-generation)). |
+| Internal | Operators and developers need the live document | Register the handler on a server only they can reach: a loopback listener reached through a port-forward or tunnel, an internal network, or an authenticating proxy. |
+| Public | The API and every route in its document are public | Register the handler on the public router, after reviewing the document. |
+
+```go
+// Internal: the document and the UI on their own loopback listener.
+docs := http.NewServeMux()
+handler.RegisterHTTP(docs)
+docsServer := &http.Server{Addr: "127.0.0.1:9090", Handler: docs, ReadHeaderTimeout: 5 * time.Second}
+go func() {
+    if err := docsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+        log.Printf("docs server: %v", err)
+    }
+}()
 ```
 
 ## CLI Commands
