@@ -667,7 +667,7 @@ logging.SetLogger(logging.NewJSONLogger(slog.LevelDebug))
 
 ## Support
 
-- **GitHub Issues**: [https://github.com/Infra-Forge/infra-apix/issues](https://github.com/Infra-Forge/infra-apix/issues)
+- **GitHub Issues**: [https://github.com/Dorico-Dynamics/infra-apix/issues](https://github.com/Dorico-Dynamics/infra-apix/issues)
 - **Documentation**: [README.md](README.md)
 - **Examples**: [examples/](examples/)
 

@@ -35,7 +35,7 @@ Current Go OpenAPI tooling (swaggo, spec-first generators) relies on comments or
 ## Installation
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 ```
 
 ## Quick Start
@@ -51,8 +51,8 @@ package main
 
 import (
     "context"
-    "github.com/Infra-Forge/apix"
-    echoadapter "github.com/Infra-Forge/apix/echo"
+    apix "github.com/Infra-Forge/infra-apix"
+    echoadapter "github.com/Infra-Forge/infra-apix/echo"
     "github.com/labstack/echo/v4"
 )
 
@@ -104,7 +104,7 @@ func main() {
 
 ```go
 import (
-    "github.com/Infra-Forge/apix/runtime"
+    "github.com/Infra-Forge/infra-apix/runtime"
 )
 
 func main() {
@@ -136,8 +136,8 @@ package main
 import (
     "context"
     "net/http"
-    "github.com/Infra-Forge/apix"
-    chiadapter "github.com/Infra-Forge/apix/chi"
+    apix "github.com/Infra-Forge/infra-apix"
+    chiadapter "github.com/Infra-Forge/infra-apix/chi"
     "github.com/go-chi/chi/v5"
 )
 
@@ -177,8 +177,8 @@ package main
 import (
     "context"
     "net/http"
-    "github.com/Infra-Forge/apix"
-    muxadapter "github.com/Infra-Forge/apix/mux"
+    apix "github.com/Infra-Forge/infra-apix"
+    muxadapter "github.com/Infra-Forge/infra-apix/mux"
     "github.com/gorilla/mux"
 )
 
@@ -214,7 +214,7 @@ func main() {
 
 ```bash
 # Install CLI
-go install github.com/Infra-Forge/apix/cmd/apix@latest
+go install github.com/Infra-Forge/infra-apix/cmd/apix@latest
 
 # Generate spec
 apix generate \
@@ -655,8 +655,7 @@ We welcome contributions! Please see our [Contributing Guide](docs/CONTRIBUTING.
 
 ## Community
 
-- **Issues**: [GitHub Issues](https://github.com/Infra-Forge/apix/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/Infra-Forge/apix/discussions)
+- **Issues**: [GitHub Issues](https://github.com/Dorico-Dynamics/infra-apix/issues)
 - **Examples**: [examples/](examples/)
 
 ## License
@@ -667,4 +666,4 @@ MIT License - see [LICENSE](LICENSE) for details
 
 **Status**: Milestone 1 & 2 complete (5 framework adapters, comprehensive documentation)
 **Maintainer**: Teodorico Mazivila
-**Repository**: [github.com/Infra-Forge/apix](https://github.com/Infra-Forge/apix)
+**Repository**: [github.com/Dorico-Dynamics/infra-apix](https://github.com/Dorico-Dynamics/infra-apix)

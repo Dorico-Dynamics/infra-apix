@@ -18,7 +18,7 @@ Detailed guides for integrating `apix` with each supported framework.
 ### Installation
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 go get github.com/labstack/echo/v4
 ```
 
@@ -31,9 +31,9 @@ import (
     "context"
     "log"
     
-    "github.com/Infra-Forge/apix"
-    echoadapter "github.com/Infra-Forge/apix/echo"
-    "github.com/Infra-Forge/apix/runtime"
+    apix "github.com/Infra-Forge/infra-apix"
+    echoadapter "github.com/Infra-Forge/infra-apix/echo"
+    "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/labstack/echo/v4"
     "github.com/labstack/echo/v4/middleware"
 )
@@ -101,7 +101,7 @@ echoadapter.Get(adapter, "/api/users/:id", getUser,
 ### Custom Options
 
 ```go
-import echoadapter "github.com/Infra-Forge/apix/echo"
+import echoadapter "github.com/Infra-Forge/infra-apix/echo"
 
 adapter := echoadapter.New(e, echoadapter.Options{
     Decoder: func(ctx context.Context, c echo.Context, dst any) error {
@@ -126,7 +126,7 @@ adapter := echoadapter.New(e, echoadapter.Options{
 ### Installation
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 go get github.com/go-chi/chi/v5
 ```
 
@@ -140,9 +140,9 @@ import (
     "log"
     "net/http"
     
-    "github.com/Infra-Forge/apix"
-    chiadapter "github.com/Infra-Forge/apix/chi"
-    "github.com/Infra-Forge/apix/runtime"
+    apix "github.com/Infra-Forge/infra-apix"
+    chiadapter "github.com/Infra-Forge/infra-apix/chi"
+    "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/go-chi/chi/v5"
     "github.com/go-chi/chi/v5/middleware"
 )
@@ -194,7 +194,7 @@ chiadapter.Get(adapter, "/api/users/{id}", getUser,
 
 ```go
 import (
-    chiadapter "github.com/Infra-Forge/apix/chi"
+    chiadapter "github.com/Infra-Forge/infra-apix/chi"
     "github.com/go-playground/validator/v10"
 )
 
@@ -212,7 +212,7 @@ adapter := chiadapter.New(r, chiadapter.Options{
 ### Installation
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 go get github.com/gorilla/mux
 ```
 
@@ -226,9 +226,9 @@ import (
     "log"
     "net/http"
     
-    "github.com/Infra-Forge/apix"
-    muxadapter "github.com/Infra-Forge/apix/mux"
-    "github.com/Infra-Forge/apix/runtime"
+    apix "github.com/Infra-Forge/infra-apix"
+    muxadapter "github.com/Infra-Forge/infra-apix/mux"
+    "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/gorilla/mux"
 )
 
@@ -284,7 +284,7 @@ muxadapter.Post(adapter, "/users", createUser)
 ### Installation
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 go get github.com/gin-gonic/gin
 ```
 
@@ -298,9 +298,9 @@ import (
     "log"
     "net/http"
     
-    "github.com/Infra-Forge/apix"
-    ginadapter "github.com/Infra-Forge/apix/gin"
-    "github.com/Infra-Forge/apix/runtime"
+    apix "github.com/Infra-Forge/infra-apix"
+    ginadapter "github.com/Infra-Forge/infra-apix/gin"
+    "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/gin-gonic/gin"
 )
 
@@ -357,7 +357,7 @@ ginadapter.Post(adapter, "/api/users", createUser)
 ### Installation
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 go get github.com/gofiber/fiber/v3
 ```
 
@@ -370,9 +370,9 @@ import (
     "context"
     "log"
     
-    "github.com/Infra-Forge/apix"
-    fiberadapter "github.com/Infra-Forge/apix/fiber"
-    "github.com/Infra-Forge/apix/runtime"
+    apix "github.com/Infra-Forge/infra-apix"
+    fiberadapter "github.com/Infra-Forge/infra-apix/fiber"
+    "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/gofiber/fiber/v3"
 )
 

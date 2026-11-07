@@ -29,7 +29,7 @@ Complete guide to get started with `apix` for OpenAPI 3.1 generation in Go.
 ### Install the Library
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 ```
 
 ### Install Your Framework
@@ -56,7 +56,7 @@ go get github.com/gofiber/fiber/v3
 ### Install CLI Tool (Optional)
 
 ```bash
-go install github.com/Infra-Forge/apix/cmd/apix@latest
+go install github.com/Infra-Forge/infra-apix/cmd/apix@latest
 ```
 
 ## Quick Start
@@ -69,7 +69,7 @@ Let's build a simple user management API with Echo.
 mkdir my-api
 cd my-api
 go mod init github.com/yourusername/my-api
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 go get github.com/labstack/echo/v4
 ```
 
@@ -127,9 +127,9 @@ func createUser(ctx context.Context, req *CreateUserRequest) (UserResponse, erro
 import (
     "log"
     
-    "github.com/Infra-Forge/apix"
-    echoadapter "github.com/Infra-Forge/apix/echo"
-    "github.com/Infra-Forge/apix/runtime"
+    apix "github.com/Infra-Forge/infra-apix"
+    echoadapter "github.com/Infra-Forge/infra-apix/echo"
+    "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/labstack/echo/v4"
     "github.com/labstack/echo/v4/middleware"
 )
@@ -428,7 +428,7 @@ jobs:
       
       - name: Check OpenAPI spec drift
         run: |
-          go install github.com/Infra-Forge/apix/cmd/apix@latest
+          go install github.com/Infra-Forge/infra-apix/cmd/apix@latest
           apix spec-guard --existing docs/openapi.yaml
 ```
 
@@ -502,7 +502,6 @@ Visit http://localhost:8080/swagger to see a full-featured API with:
 
 ### Get Help
 
-- **Issues**: https://github.com/Infra-Forge/apix/issues
-- **Discussions**: https://github.com/Infra-Forge/apix/discussions
-- **Examples**: https://github.com/Infra-Forge/apix/tree/main/examples
+- **Issues**: https://github.com/Dorico-Dynamics/infra-apix/issues
+- **Examples**: https://github.com/Dorico-Dynamics/infra-apix/tree/main/examples
 

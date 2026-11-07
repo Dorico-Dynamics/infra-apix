@@ -38,7 +38,7 @@ Generate and serve the spec at runtime:
 
 ```go
 import (
-    "github.com/Infra-Forge/apix/runtime"
+    "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/getkin/kin-openapi/openapi3"
 )
 
@@ -85,8 +85,8 @@ Generate specs in your code:
 
 ```go
 import (
-    "github.com/Infra-Forge/apix"
-    "github.com/Infra-Forge/apix/openapi"
+    apix "github.com/Infra-Forge/infra-apix"
+    "github.com/Infra-Forge/infra-apix/openapi"
     "github.com/getkin/kin-openapi/openapi3"
 )
 
@@ -367,7 +367,7 @@ Rename one type of each pair. `Builder.Build` returns this error. The runtime ha
 
 ```go
 import (
-    "github.com/Infra-Forge/apix/runtime"
+    "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/getkin/kin-openapi/openapi3"
 )
 

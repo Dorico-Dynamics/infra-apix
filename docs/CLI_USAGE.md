@@ -16,13 +16,13 @@ Complete guide to using the `apix` command-line tool.
 ### Install from Source
 
 ```bash
-go install github.com/Infra-Forge/apix/cmd/apix@latest
+go install github.com/Infra-Forge/infra-apix/cmd/apix@latest
 ```
 
 ### Install Specific Version
 
 ```bash
-go install github.com/Infra-Forge/apix/cmd/apix@v0.2.0
+go install github.com/Infra-Forge/infra-apix/cmd/apix@v1.8.0
 ```
 
 ### Verify Installation
@@ -227,7 +227,7 @@ jobs:
           go-version: '1.27'
       
       - name: Install apix CLI
-        run: go install github.com/Infra-Forge/apix/cmd/apix@latest
+        run: go install github.com/Infra-Forge/infra-apix/cmd/apix@latest
       
       - name: Run tests
         run: go test ./...
@@ -244,7 +244,7 @@ Add to `.gitlab-ci.yml`:
 test:
   image: golang:1.27
   script:
-    - go install github.com/Infra-Forge/apix/cmd/apix@latest
+    - go install github.com/Infra-Forge/infra-apix/cmd/apix@latest
     - go test ./...
     - apix spec-guard --existing docs/openapi.yaml
 ```

@@ -45,7 +45,7 @@ cd apix
 3. Add upstream remote:
 
 ```bash
-git remote add upstream https://github.com/Infra-Forge/apix.git
+git remote add upstream https://github.com/Dorico-Dynamics/infra-apix.git
 ```
 
 ## Development Setup
@@ -484,7 +484,7 @@ for _, r := range routes {
 ```bash
 # Test with local changes
 cd examples/infranotes
-go mod edit -replace github.com/Infra-Forge/apix=../..
+go mod edit -replace github.com/Infra-Forge/infra-apix=../..
 go run main.go
 ```
 
@@ -505,8 +505,7 @@ go run main.go
 
 ## Questions?
 
-- **Issues**: https://github.com/Infra-Forge/apix/issues
-- **Discussions**: https://github.com/Infra-Forge/apix/discussions
+- **Issues**: https://github.com/Dorico-Dynamics/infra-apix/issues
 - **Email**: support@infraforge.dev
 
 Thank you for contributing to apix! 🚀

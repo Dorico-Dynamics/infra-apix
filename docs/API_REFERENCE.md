@@ -385,11 +385,11 @@ frameworkadapter.Get(adapter, "/path", handler, options...)
 
 ### Echo Adapter
 
-**Package:** `github.com/Infra-Forge/apix/echo`
+**Package:** `github.com/Infra-Forge/infra-apix/echo`
 
 ```go
 import (
-    echoadapter "github.com/Infra-Forge/apix/echo"
+    echoadapter "github.com/Infra-Forge/infra-apix/echo"
     "github.com/labstack/echo/v4"
 )
 
@@ -413,11 +413,11 @@ echoadapter.Post(adapter, "/api/users", createUser,
 
 ### Chi Adapter
 
-**Package:** `github.com/Infra-Forge/apix/chi`
+**Package:** `github.com/Infra-Forge/infra-apix/chi`
 
 ```go
 import (
-    chiadapter "github.com/Infra-Forge/apix/chi"
+    chiadapter "github.com/Infra-Forge/infra-apix/chi"
     "github.com/go-chi/chi/v5"
 )
 
@@ -433,11 +433,11 @@ chiadapter.Post(adapter, "/api/users", createUser,
 
 ### Gorilla/Mux Adapter
 
-**Package:** `github.com/Infra-Forge/apix/mux`
+**Package:** `github.com/Infra-Forge/infra-apix/mux`
 
 ```go
 import (
-    muxadapter "github.com/Infra-Forge/apix/mux"
+    muxadapter "github.com/Infra-Forge/infra-apix/mux"
     "github.com/gorilla/mux"
 )
 
@@ -453,11 +453,11 @@ muxadapter.Post(adapter, "/api/users", createUser,
 
 ### Gin Adapter
 
-**Package:** `github.com/Infra-Forge/apix/gin`
+**Package:** `github.com/Infra-Forge/infra-apix/gin`
 
 ```go
 import (
-    ginadapter "github.com/Infra-Forge/apix/gin"
+    ginadapter "github.com/Infra-Forge/infra-apix/gin"
     "github.com/gin-gonic/gin"
 )
 
@@ -473,11 +473,11 @@ ginadapter.Post(adapter, "/api/users", createUser,
 
 ### Fiber Adapter
 
-**Package:** `github.com/Infra-Forge/apix/fiber`
+**Package:** `github.com/Infra-Forge/infra-apix/fiber`
 
 ```go
 import (
-    fiberadapter "github.com/Infra-Forge/apix/fiber"
+    fiberadapter "github.com/Infra-Forge/infra-apix/fiber"
     "github.com/gofiber/fiber/v3"
 )
 
@@ -493,7 +493,7 @@ fiberadapter.Post(adapter, "/api/users", createUser,
 
 ## OpenAPI Builder
 
-**Package:** `github.com/Infra-Forge/apix/openapi`
+**Package:** `github.com/Infra-Forge/infra-apix/openapi`
 
 ### Builder
 
@@ -522,8 +522,8 @@ security requirement names a scheme that neither `SecuritySchemes` nor an
 
 ```go
 import (
-    "github.com/Infra-Forge/apix"
-    "github.com/Infra-Forge/apix/openapi"
+    apix "github.com/Infra-Forge/infra-apix"
+    "github.com/Infra-Forge/infra-apix/openapi"
     "github.com/getkin/kin-openapi/openapi3"
 )
 
@@ -565,7 +565,7 @@ func EncodeDocument(doc *openapi3.T, format string) ([]byte, string, error)
 
 ## Runtime Server
 
-**Package:** `github.com/Infra-Forge/apix/runtime`
+**Package:** `github.com/Infra-Forge/infra-apix/runtime`
 
 ### Config
 
