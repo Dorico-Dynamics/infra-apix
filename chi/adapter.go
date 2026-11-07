@@ -2,13 +2,13 @@ package chi
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"reflect"
 
 	apix "github.com/Infra-Forge/infra-apix"
 	"github.com/Infra-Forge/infra-apix/internal/errorhandler"
 	"github.com/Infra-Forge/infra-apix/internal/requestbody"
+	"github.com/Infra-Forge/infra-apix/internal/responsebody"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -16,6 +16,10 @@ import (
 type RequestDecoder func(ctx context.Context, w http.ResponseWriter, r *http.Request, dst any) error
 
 // ResponseEncoder writes the response payload using the provided status code.
+// An error it returns before writing anything is answered by the error
+// handler. Once it has written the status or part of the body, nothing more
+// can be sent, so the adapter logs the error at Error level instead. Encode
+// before writing the status to keep an encoding failure answerable.
 type ResponseEncoder func(ctx context.Context, w http.ResponseWriter, r *http.Request, status int, payload any, ref *apix.RouteRef) error
 
 // ErrorHandler handles errors from the typed handler.
@@ -146,9 +150,7 @@ func buildChiHandler[TReq any, TResp any](a *ChiAdapter, handler apix.HandlerFun
 			return
 		}
 
-		if err := a.encode(ctx, w, r, ref.SuccessStatus, resp, ref); err != nil {
-			a.handleError(ctx, w, r, err)
-		}
+		a.respond(ctx, w, r, resp, ref)
 	}
 }
 
@@ -159,11 +161,26 @@ func (a *ChiAdapter) decode(ctx context.Context, w http.ResponseWriter, r *http.
 	return defaultDecoder(ctx, w, r, dst, a.opts.Validator)
 }
 
-func (a *ChiAdapter) encode(ctx context.Context, w http.ResponseWriter, r *http.Request, status int, payload any, ref *apix.RouteRef) error {
-	if enc := a.opts.ResponseEncoder; enc != nil {
-		return enc(ctx, w, r, status, payload, ref)
+// respond sends the handler's result. An encoder error is answered by the
+// error handler only while nothing has been sent. Once a custom encoder has
+// started the response, its error is logged instead: another response would
+// be appended to the first.
+func (a *ChiAdapter) respond(ctx context.Context, w http.ResponseWriter, r *http.Request, payload any, ref *apix.RouteRef) {
+	enc := a.opts.ResponseEncoder
+	if enc == nil {
+		if err := defaultEncoder(w, r, ref.SuccessStatus, payload); err != nil {
+			a.handleError(ctx, w, r, err)
+		}
+		return
 	}
-	return defaultEncoder(ctx, w, r, status, payload)
+	tracked := responsebody.NewWriter(w)
+	if err := enc(ctx, tracked, r, ref.SuccessStatus, payload, ref); err != nil {
+		if tracked.Committed() {
+			errorhandler.LogCommittedFailure(ctx, errorhandler.RequestOf(r), err)
+			return
+		}
+		a.handleError(ctx, w, r, err)
+	}
 }
 
 func (a *ChiAdapter) handleError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
@@ -187,14 +204,14 @@ func defaultDecoder(ctx context.Context, w http.ResponseWriter, r *http.Request,
 	return requestbody.Invalid(validator.Validate(dst))
 }
 
-func defaultEncoder(ctx context.Context, w http.ResponseWriter, r *http.Request, status int, payload any) error {
+// defaultEncoder sends payload as JSON, encoded before the status is written.
+// It returns only an encoding error; a failed write is logged.
+func defaultEncoder(w http.ResponseWriter, r *http.Request, status int, payload any) error {
 	if status == http.StatusNoContent || payload == nil || isNoBody(reflect.TypeOf(payload)) {
 		w.WriteHeader(status)
 		return nil
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	return json.NewEncoder(w).Encode(payload)
+	return responsebody.WriteJSON(w, r, status, payload)
 }
 
 func typeOf[T any]() reflect.Type {
