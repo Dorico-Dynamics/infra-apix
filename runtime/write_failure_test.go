@@ -29,7 +29,11 @@ func TestAFailedWriteIsLoggedAtWarn(t *testing.T) {
 	t.Cleanup(func() { apix.SetLogger(nil) })
 	mux := specMux(t, runtime.Config{EnableSwaggerUI: true})
 
-	for path, msg := range map[string]string{"/openapi.json": "OpenAPI document write failed", "/swagger": "Swagger UI write failed"} {
+	for path, msg := range map[string]string{
+		"/openapi.json":                 "OpenAPI document write failed",
+		"/swagger":                      "Swagger UI write failed",
+		"/swagger/swagger-ui-bundle.js": "Swagger UI write failed",
+	} {
 		logs.Reset()
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("X-Request-ID", "req-1")
@@ -66,7 +70,11 @@ func TestAFailedEchoWriteIsLoggedAtWarn(t *testing.T) {
 	e.HTTPErrorHandler = func(err error, _ echo.Context) { handled = err }
 	h.RegisterEcho(e)
 
-	for path, msg := range map[string]string{"/openapi.json": "OpenAPI document write failed", "/swagger": "Swagger UI write failed"} {
+	for path, msg := range map[string]string{
+		"/openapi.json":                 "OpenAPI document write failed",
+		"/swagger":                      "Swagger UI write failed",
+		"/swagger/swagger-ui-bundle.js": "Swagger UI write failed",
+	} {
 		logs.Reset()
 		handled = nil
 		req := httptest.NewRequest(http.MethodGet, path, nil)
