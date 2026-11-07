@@ -1,6 +1,7 @@
 package openapi_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"reflect"
 	"testing"
@@ -82,5 +83,32 @@ func TestBuildAcceptsSecuritySchemesAPluginDeclares(t *testing.T) {
 
 	if _, err := openapi.NewBuilder().Build([]*apix.RouteRef{ssRoute(apix.MethodGet, "/items", "BearerAuth")}); err != nil {
 		t.Fatalf("build: %v", err)
+	}
+}
+
+// TestSecurityRequirementWithoutScopesIsAnEmptyList: WithSecurity without
+// scopes is encoded as an empty list, as the OpenAPI schema requires, not as
+// null; scopes are kept in order.
+func TestSecurityRequirementWithoutScopesIsAnEmptyList(t *testing.T) {
+	b := openapi.NewBuilder()
+	b.SecuritySchemes = bearerScheme()
+	scoped := ssRoute(apix.MethodPost, "/items")
+	apix.WithSecurity("BearerAuth", "items:write", "items:read")(scoped)
+
+	doc, err := b.Build([]*apix.RouteRef{ssRoute(apix.MethodGet, "/items", "BearerAuth"), scoped})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	for method, want := range map[string]string{
+		http.MethodGet:  `[{"BearerAuth":[]}]`,
+		http.MethodPost: `[{"BearerAuth":["items:write","items:read"]}]`,
+	} {
+		got, err := json.Marshal(doc.Paths.Value("/items").GetOperation(method).Security)
+		if err != nil {
+			t.Fatalf("encode %s security: %v", method, err)
+		}
+		if string(got) != want {
+			t.Errorf("%s /items security = %s, want %s", method, got, want)
+		}
 	}
 }

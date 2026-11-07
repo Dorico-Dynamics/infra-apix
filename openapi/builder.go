@@ -163,9 +163,9 @@ func (b *Builder) addRoute(doc *openapi3.T, ref *apix.RouteRef) error {
 	if len(ref.Security) > 0 {
 		security := openapi3.NewSecurityRequirements()
 		for _, sec := range ref.Security {
-			req := openapi3.SecurityRequirement{}
-			req[sec.Name] = sec.Scopes
-			security.With(req)
+			// Authenticate writes no scopes as [], which the OpenAPI schema
+			// requires; a nil slice would be encoded as null.
+			security.With(openapi3.NewSecurityRequirement().Authenticate(sec.Name, sec.Scopes...))
 		}
 		op.Security = security
 	}
