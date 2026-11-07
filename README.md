@@ -26,7 +26,7 @@ Current Go OpenAPI tooling (swaggo, spec-first generators) relies on comments or
 - ✅ **Struct tag parsing** (`json`, `validate`, `binding`)
 - ✅ **Nullable types** (pointer detection)
 - ✅ **Security schemes** (route-level and global)
-- ✅ **Standard error responses** (shared ErrorResponse schema for 4xx/5xx)
+- ✅ **Standard error responses** (shared ErrorResponse schema for 4xx/5xx, sent once you set an [`ErrorHandler`](docs/API_REFERENCE.md#errorresponse))
 - ✅ **Custom parameters** (query, path, header)
 - ✅ **Runtime endpoints** (`/openapi.json`, optional Swagger UI)
 - ⚠️ **CLI tool** (`apix generate`, `apix spec-guard`): finds no routes yet ([status](docs/CLI_USAGE.md))

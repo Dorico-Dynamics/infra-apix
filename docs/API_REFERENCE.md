@@ -319,7 +319,7 @@ apix.WithSuccessHeaders(http.StatusCreated, apix.HeaderRef{
 
 ### WithStandardErrors
 
-Adds standard 4xx/5xx error responses using the shared `ErrorResponse` schema.
+Documents standard 4xx/5xx error responses with the shared `ErrorResponse` schema. The adapters send their own error bodies unless an `ErrorHandler` sends this one (see [ErrorResponse](#errorresponse)).
 
 ```go
 func WithStandardErrors() RouteOption
@@ -770,5 +770,68 @@ type ErrorResponse struct {
 
 **Usage:**
 
-Every error option documents this schema, except `WithCustomErrorResponse`, which documents the model you pass.
+Every error option documents this schema, except `WithCustomErrorResponse`, which documents the model you pass. When two options name the same status, the first one wins: `WithStandardErrors()` followed by `WithCustomErrorResponse(400, …)` documents `ErrorResponse` for 400, so put the custom option first.
+
+The error options only document responses; they do not change what an adapter sends. Without an `ErrorHandler`, an error with a 4xx or 5xx status is sent as:
+
+| Adapter | Body for `apix.NotFound("User not found")` |
+|---------|--------------------------------------------|
+| chi, mux | `text/plain`: `http 404 [NOT_FOUND]: User not found` |
+| gin, fiber | `{"error":"http 404 [NOT_FOUND]: User not found"}` |
+| echo | `{"message":"http 404 [NOT_FOUND]: User not found"}`, from Echo's `HTTPErrorHandler` |
+
+Any other error is sent as a 500 whose text is `Internal Server Error`. With `UseProblemDetails`, the body is `application/problem+json` (Echo also needs `ProblemDetailsErrorHandler`), while the error options still document `ErrorResponse` as `application/json`.
+
+To send the documented `ErrorResponse`, set the adapter's `ErrorHandler`. For chi and mux:
+
+```go
+// errorResponse returns the status and the apix.ErrorResponse to send for err.
+// An error without a 4xx or 5xx status becomes a generic 500, so its text
+// stays out of the response.
+func errorResponse(err error) (int, apix.ErrorResponse) {
+    status, resp := http.StatusInternalServerError, apix.ErrorResponse{Message: http.StatusText(http.StatusInternalServerError)}
+    var httpErr *apix.HTTPError
+    var coder apix.StatusCoder
+    switch {
+    case errors.As(err, &httpErr) && httpErr.Status >= 400 && httpErr.Status <= 599:
+        status, resp = httpErr.Status, apix.ErrorResponse{Code: httpErr.Code, Message: httpErr.Message}
+    case errors.As(err, &coder) && coder.HTTPStatus() >= 400 && coder.HTTPStatus() <= 599:
+        // Request body errors from the default decoders: 400, 413 and 422
+        status, resp.Message = coder.HTTPStatus(), coder.Error()
+    }
+    if resp.Code == "" {
+        // BAD_REQUEST, NOT_FOUND, INTERNAL_SERVER_ERROR, ...
+        resp.Code = strings.ToUpper(strings.ReplaceAll(http.StatusText(status), " ", "_"))
+    }
+    return status, resp
+}
+
+// writeError is a chi or mux ErrorHandler that sends err as apix.ErrorResponse.
+func writeError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
+    status, resp := errorResponse(err)
+    if status >= 500 {
+        slog.ErrorContext(ctx, "request failed", "method", r.Method, "path", r.URL.Path, "error", err)
+    }
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(status)
+    if err := json.NewEncoder(w).Encode(resp); err != nil {
+        slog.WarnContext(ctx, "error response write failed", "error", err)
+    }
+}
+
+adapter := chiadapter.New(r, chiadapter.Options{ErrorHandler: writeError})
+```
+
+Echo's `ErrorHandler` returns the error to Echo's `HTTPErrorHandler`, which writes a message that is not a string as JSON:
+
+```go
+adapter := echoadapter.New(e, echoadapter.Options{
+    ErrorHandler: func(err error) error {
+        status, resp := errorResponse(err)
+        return echo.NewHTTPError(status, resp).SetInternal(err)
+    },
+})
+```
+
+Gin's and Fiber's `ErrorHandler`s take the framework's context, `func(context.Context, *gin.Context, error)` and `func(context.Context, fiber.Ctx, error) error`, and write the body with `c.JSON(status, resp)` and `c.Status(status).JSON(resp)`. Errors that do not come from a handler or its request body, such as a 401 from authentication middleware or the router's 404 for an unknown path, do not pass through `ErrorHandler`.
 

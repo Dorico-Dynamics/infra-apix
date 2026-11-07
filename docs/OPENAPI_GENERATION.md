@@ -28,7 +28,7 @@ Complete guide to generating OpenAPI 3.1 specifications with `apix`.
 - ✅ **Automatic schema generation** - From Go structs with full type support
 - ✅ **Nullable detection** - Pointer types become nullable in OpenAPI
 - ✅ **Required fields** - `validate:"required"` and `binding:"required"` mark properties required
-- ✅ **Standard error responses** - Shared ErrorResponse schema
+- ✅ **Standard error responses** - Shared ErrorResponse schema, sent once you set an [`ErrorHandler`](API_REFERENCE.md#errorresponse)
 
 ## Basic Generation
 
@@ -537,6 +537,8 @@ echoadapter.Post(adapter, "/api/users", createUser,
     apix.WithCustomErrorResponse(http.StatusConflict, ConflictError{}, "User already exists"),
 )
 ```
+
+These options document the responses; they do not change the bodies the adapters send. For one status, the first option wins. [ErrorResponse](API_REFERENCE.md#errorresponse) lists the default bodies, and shows an `ErrorHandler` that sends the documented one.
 
 ### Multiple Response Types
 

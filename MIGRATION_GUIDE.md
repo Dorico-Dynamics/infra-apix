@@ -319,6 +319,17 @@ echoadapter.Get(adapter, "/users/:id", GetUser,
 )
 ```
 
+The swaggo handler wrote its own error body; here the adapter writes it. By default Echo sends `{"message":"http 404 [NOT_FOUND]: User not found"}`, not the `apix.ErrorResponse` that the error options document. To send the documented body, build it in the adapter's `ErrorHandler`, with `errorResponse` from the [API reference](docs/API_REFERENCE.md#errorresponse):
+
+```go
+adapter := echoadapter.New(e, echoadapter.Options{
+    ErrorHandler: func(err error) error {
+        status, resp := errorResponse(err)
+        return echo.NewHTTPError(status, resp).SetInternal(err)
+    },
+})
+```
+
 ### Example 3: File Upload
 
 #### Swaggo (Before)
