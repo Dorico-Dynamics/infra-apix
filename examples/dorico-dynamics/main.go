@@ -374,12 +374,16 @@ func main() {
 		apix.WithConflictError("Cannot delete category with existing transactions"),
 	)
 
+	// The document lists the address the server listens on, so the
+	// Swagger UI's "Try it out" calls this example.
+	port := 8080
+
 	// Create runtime handler for OpenAPI spec
 	handler, err := runtime.NewHandler(runtime.Config{
 		Title:           "Dorico Dynamics Financial Analytics API",
 		Version:         "1.0.0",
 		Format:          "json",
-		Servers:         []string{"http://localhost:8080"},
+		Servers:         []string{fmt.Sprintf("http://localhost:%d", port)},
 		EnableSwaggerUI: true,
 		// Every scheme the routes name with apix.WithSecurity must be declared
 		SecuritySchemes: openapi3.SecuritySchemes{
@@ -420,7 +424,6 @@ func main() {
 	})
 
 	// Start server
-	port := 8080
 	log.Printf("Starting Dorico Dynamics example server on port %d", port)
 	log.Printf("OpenAPI spec available at: http://localhost:%d/openapi.json", port)
 	log.Printf("Swagger UI available at: http://localhost:%d/swagger", port)
