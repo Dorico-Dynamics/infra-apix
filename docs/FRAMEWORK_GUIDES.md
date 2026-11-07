@@ -4,39 +4,25 @@ Detailed guides for integrating `apix` with each supported framework.
 
 ## Table of Contents
 
+- [Shared Models and Handler](#shared-models-and-handler)
 - [Echo](#echo)
 - [Chi](#chi)
 - [Gorilla/Mux](#gorillamux)
 - [Gin](#gin)
 - [Fiber](#fiber)
+- [Reading Path and Query Parameters](#reading-path-and-query-parameters)
 - [Comparison](#framework-comparison)
 
 ---
 
-## Echo
+## Shared Models and Handler
 
-### Installation
-
-```bash
-go get github.com/Infra-Forge/apix
-go get github.com/labstack/echo/v4
-```
-
-### Basic Setup
+The setups below are `main.go` files. Each builds with this `users.go` beside it:
 
 ```go
 package main
 
-import (
-    "context"
-    "log"
-    
-    "github.com/Infra-Forge/apix"
-    echoadapter "github.com/Infra-Forge/apix/echo"
-    "github.com/Infra-Forge/apix/runtime"
-    "github.com/labstack/echo/v4"
-    "github.com/labstack/echo/v4/middleware"
-)
+import "context"
 
 type CreateUserRequest struct {
     Name  string `json:"name" validate:"required"`
@@ -56,35 +42,65 @@ func createUser(ctx context.Context, req *CreateUserRequest) (UserResponse, erro
         Email: req.Email,
     }, nil
 }
+```
+
+---
+
+## Echo
+
+### Installation
+
+```bash
+go get github.com/Infra-Forge/infra-apix
+go get github.com/labstack/echo/v4
+```
+
+### Basic Setup
+
+```go
+package main
+
+import (
+    "log"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    echoadapter "github.com/Infra-Forge/infra-apix/echo"
+    "github.com/Infra-Forge/infra-apix/runtime"
+    "github.com/labstack/echo/v4"
+    "github.com/labstack/echo/v4/middleware"
+)
 
 func main() {
     e := echo.New()
     e.Use(middleware.Logger())
     e.Use(middleware.Recover())
-    
+
     adapter := echoadapter.New(e)
-    
+
     echoadapter.Post(adapter, "/api/users", createUser,
         apix.WithSummary("Create a new user"),
         apix.WithTags("Users"),
         apix.WithStandardErrors(),
     )
-    
+
     // Serve OpenAPI spec
-    handler, _ := runtime.NewHandler(runtime.Config{
+    handler, err := runtime.NewHandler(runtime.Config{
         Title:           "My API",
         Version:         "1.0.0",
         EnableSwaggerUI: true,
     })
+    if err != nil {
+        log.Fatal(err)
+    }
     handler.RegisterEcho(e)
-    
-    e.Start(":8080")
+
+    log.Fatal(e.Start(":8080"))
 }
 ```
 
 ### Path Parameters
 
-Echo uses `:param` syntax for path parameters:
+Echo uses `:param` syntax for path parameters. apix does not read them from the route, so declare each one with `WithParameter`:
 
 ```go
 echoadapter.Get(adapter, "/api/users/:id", getUser,
@@ -101,11 +117,19 @@ echoadapter.Get(adapter, "/api/users/:id", getUser,
 ### Custom Options
 
 ```go
-import echoadapter "github.com/Infra-Forge/apix/echo"
+import (
+    "context"
+    "errors"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    echoadapter "github.com/Infra-Forge/infra-apix/echo"
+    "github.com/labstack/echo/v4"
+)
 
 adapter := echoadapter.New(e, echoadapter.Options{
     Decoder: func(ctx context.Context, c echo.Context, dst any) error {
-        // Custom request decoding
+        // Custom request decoding. The default decoder also rejects unknown
+        // fields and trailing content, and runs e.Validator.
         return c.Bind(dst)
     },
     ResponseEncoder: func(ctx context.Context, c echo.Context, status int, payload any, ref *apix.RouteRef) error {
@@ -113,8 +137,14 @@ adapter := echoadapter.New(e, echoadapter.Options{
         return c.JSON(status, payload)
     },
     ErrorHandler: func(err error) error {
-        // Transform errors to Echo errors
-        return echo.NewHTTPError(500, err.Error())
+        // Keep the status and message of apix errors such as apix.NotFound.
+        var coded apix.StatusCoder
+        if errors.As(err, &coded) {
+            return echo.NewHTTPError(coded.HTTPStatus(), coded.Error())
+        }
+        // Echo's error handler answers any other error with a 500 that
+        // leaves the error's message out.
+        return err
     },
 })
 ```
@@ -126,7 +156,7 @@ adapter := echoadapter.New(e, echoadapter.Options{
 ### Installation
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 go get github.com/go-chi/chi/v5
 ```
 
@@ -136,13 +166,12 @@ go get github.com/go-chi/chi/v5
 package main
 
 import (
-    "context"
     "log"
     "net/http"
-    
-    "github.com/Infra-Forge/apix"
-    chiadapter "github.com/Infra-Forge/apix/chi"
-    "github.com/Infra-Forge/apix/runtime"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    chiadapter "github.com/Infra-Forge/infra-apix/chi"
+    "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/go-chi/chi/v5"
     "github.com/go-chi/chi/v5/middleware"
 )
@@ -151,32 +180,35 @@ func main() {
     r := chi.NewRouter()
     r.Use(middleware.Logger)
     r.Use(middleware.Recoverer)
-    
+
     adapter := chiadapter.New(r)
-    
+
     chiadapter.Post(adapter, "/api/users", createUser,
         apix.WithSummary("Create a new user"),
         apix.WithTags("Users"),
     )
-    
+
     // Serve OpenAPI spec
-    handler, _ := runtime.NewHandler(runtime.Config{
+    handler, err := runtime.NewHandler(runtime.Config{
         Title:           "My API",
         Version:         "1.0.0",
         EnableSwaggerUI: true,
     })
-    
-    mux := http.NewServeMux()
-    handler.RegisterHTTP(mux)
-    r.Mount("/", mux)
-    
-    http.ListenAndServe(":8080", r)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    docs := http.NewServeMux()
+    handler.RegisterHTTP(docs)
+    r.Mount("/", docs) // paths no other route matches
+
+    log.Fatal(http.ListenAndServe(":8080", r))
 }
 ```
 
 ### Path Parameters
 
-Chi uses `{param}` syntax for path parameters:
+Chi uses `{param}` syntax for path parameters. apix does not read them from the route, so declare each one with `WithParameter`:
 
 ```go
 chiadapter.Get(adapter, "/api/users/{id}", getUser,
@@ -192,16 +224,20 @@ chiadapter.Get(adapter, "/api/users/{id}", getUser,
 
 ### Custom Validation
 
+`chiadapter.Validator` has one method, `Validate(any) error`. go-playground/validator checks structs with `Struct`, so wrap it:
+
 ```go
 import (
-    chiadapter "github.com/Infra-Forge/apix/chi"
+    chiadapter "github.com/Infra-Forge/infra-apix/chi"
     "github.com/go-playground/validator/v10"
 )
 
-validate := validator.New()
+type structValidator struct{ v *validator.Validate }
+
+func (s structValidator) Validate(dst any) error { return s.v.Struct(dst) }
 
 adapter := chiadapter.New(r, chiadapter.Options{
-    Validator: validate,
+    Validator: structValidator{v: validator.New()},
 })
 ```
 
@@ -212,7 +248,7 @@ adapter := chiadapter.New(r, chiadapter.Options{
 ### Installation
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 go get github.com/gorilla/mux
 ```
 
@@ -222,48 +258,56 @@ go get github.com/gorilla/mux
 package main
 
 import (
-    "context"
     "log"
     "net/http"
-    
-    "github.com/Infra-Forge/apix"
-    muxadapter "github.com/Infra-Forge/apix/mux"
-    "github.com/Infra-Forge/apix/runtime"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    muxadapter "github.com/Infra-Forge/infra-apix/mux"
+    "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/gorilla/mux"
 )
 
 func main() {
     r := mux.NewRouter()
-    
+
     adapter := muxadapter.New(r)
-    
+
     muxadapter.Post(adapter, "/api/users", createUser,
         apix.WithSummary("Create a new user"),
         apix.WithTags("Users"),
     )
-    
+
     // Serve OpenAPI spec
-    handler, _ := runtime.NewHandler(runtime.Config{
+    handler, err := runtime.NewHandler(runtime.Config{
         Title:           "My API",
         Version:         "1.0.0",
         EnableSwaggerUI: true,
     })
-    
-    mux := http.NewServeMux()
-    handler.RegisterHTTP(mux)
-    r.PathPrefix("/").Handler(mux)
-    
-    http.ListenAndServe(":8080", r)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    docs := http.NewServeMux()
+    handler.RegisterHTTP(docs)
+    r.PathPrefix("/").Handler(docs) // registered last, so it gets what the routes above do not
+
+    log.Fatal(http.ListenAndServe(":8080", r))
 }
 ```
 
 ### Path Parameters
 
-Mux uses `{param}` syntax for path parameters:
+Mux uses `{param}` syntax for path parameters. apix does not read them from the route, so declare each one with `WithParameter`:
 
 ```go
 muxadapter.Get(adapter, "/api/users/{id}", getUser,
     apix.WithSummary("Get user by ID"),
+    apix.WithParameter(apix.Parameter{
+        Name:       "id",
+        In:         "path",
+        SchemaType: "string",
+        Required:   true,
+    }),
 )
 ```
 
@@ -284,7 +328,7 @@ muxadapter.Post(adapter, "/users", createUser)
 ### Installation
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 go get github.com/gin-gonic/gin
 ```
 
@@ -294,49 +338,58 @@ go get github.com/gin-gonic/gin
 package main
 
 import (
-    "context"
     "log"
     "net/http"
-    
-    "github.com/Infra-Forge/apix"
-    ginadapter "github.com/Infra-Forge/apix/gin"
-    "github.com/Infra-Forge/apix/runtime"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    ginadapter "github.com/Infra-Forge/infra-apix/gin"
+    "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/gin-gonic/gin"
 )
 
 func main() {
     r := gin.Default()
-    
+
     adapter := ginadapter.New(r)
-    
+
     ginadapter.Post(adapter, "/api/users", createUser,
         apix.WithSummary("Create a new user"),
         apix.WithTags("Users"),
     )
-    
+
     // Serve OpenAPI spec
-    handler, _ := runtime.NewHandler(runtime.Config{
+    handler, err := runtime.NewHandler(runtime.Config{
         Title:           "My API",
         Version:         "1.0.0",
         EnableSwaggerUI: true,
     })
-    
-    mux := http.NewServeMux()
-    handler.RegisterHTTP(mux)
-    r.Any("/openapi.json", gin.WrapH(mux))
-    r.Any("/swagger", gin.WrapH(mux))
-    
-    r.Run(":8080")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    docs := http.NewServeMux()
+    handler.RegisterHTTP(docs)
+    r.GET("/openapi.json", gin.WrapH(docs))
+    r.GET("/swagger", gin.WrapH(docs))
+    r.GET("/swagger/*file", gin.WrapH(docs)) // paths below the page
+
+    log.Fatal(r.Run(":8080"))
 }
 ```
 
 ### Path Parameters
 
-Gin uses `:param` syntax for path parameters:
+Gin uses `:param` syntax for path parameters. apix does not read them from the route, so declare each one with `WithParameter`:
 
 ```go
 ginadapter.Get(adapter, "/api/users/:id", getUser,
     apix.WithSummary("Get user by ID"),
+    apix.WithParameter(apix.Parameter{
+        Name:       "id",
+        In:         "path",
+        SchemaType: "string",
+        Required:   true,
+    }),
 )
 ```
 
@@ -357,7 +410,7 @@ ginadapter.Post(adapter, "/api/users", createUser)
 ### Installation
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 go get github.com/gofiber/fiber/v3
 ```
 
@@ -367,52 +420,166 @@ go get github.com/gofiber/fiber/v3
 package main
 
 import (
-    "context"
     "log"
-    
-    "github.com/Infra-Forge/apix"
-    fiberadapter "github.com/Infra-Forge/apix/fiber"
-    "github.com/Infra-Forge/apix/runtime"
+    "net/http"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    fiberadapter "github.com/Infra-Forge/infra-apix/fiber"
+    "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/adaptor"
 )
 
 func main() {
     app := fiber.New()
-    
+
     adapter := fiberadapter.New(app)
-    
+
     fiberadapter.Post(adapter, "/api/users", createUser,
         apix.WithSummary("Create a new user"),
         apix.WithTags("Users"),
     )
-    
+
     // Serve OpenAPI spec
-    handler, _ := runtime.NewHandler(runtime.Config{
+    handler, err := runtime.NewHandler(runtime.Config{
         Title:           "My API",
         Version:         "1.0.0",
         EnableSwaggerUI: true,
     })
-    
-    app.Get("/openapi.json", func(c fiber.Ctx) error {
-        payload, ctype, err := handler.ServeHTTP(c.Response().BodyWriter(), c.Request())
-        if err != nil {
-            return err
-        }
-        c.Set("Content-Type", ctype)
-        return c.Send(payload)
-    })
-    
-    app.Listen(":8080")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    docs := http.NewServeMux()
+    handler.RegisterHTTP(docs)
+    app.Use(adaptor.HTTPHandler(docs)) // registered last, so it gets what the routes above do not
+
+    log.Fatal(app.Listen(":8080"))
 }
 ```
 
 ### Path Parameters
 
-Fiber uses `:param` syntax for path parameters:
+Fiber uses `:param` syntax for path parameters. apix does not read them from the route, so declare each one with `WithParameter`:
 
 ```go
 fiberadapter.Get(adapter, "/api/users/:id", getUser,
     apix.WithSummary("Get user by ID"),
+    apix.WithParameter(apix.Parameter{
+        Name:       "id",
+        In:         "path",
+        SchemaType: "string",
+        Required:   true,
+    }),
+)
+```
+
+---
+
+## Reading Path and Query Parameters
+
+A typed handler receives the request's `context.Context` and its decoded body, not the router's context. Declare path and query parameters with `apix.WithParameter` so the document lists them, copy them into the request context in middleware, and read them with helpers:
+
+```go
+type pathParamsKey struct{}
+type queryKey struct{}
+
+func pathParam(ctx context.Context, name string) string {
+    params, _ := ctx.Value(pathParamsKey{}).(map[string]string)
+    return params[name]
+}
+
+func queryParam(ctx context.Context, name string) string {
+    query, _ := ctx.Value(queryKey{}).(url.Values)
+    return query.Get(name)
+}
+
+// GET /api/users/user-123?include=email
+func getUser(ctx context.Context, _ *apix.NoBody) (UserResponse, error) {
+    // Load the user with this id
+    user := UserResponse{ID: pathParam(ctx, "id"), Name: "John Doe"}
+    if queryParam(ctx, "include") == "email" {
+        user.Email = "john@example.com"
+    }
+    return user, nil
+}
+```
+
+**Echo** runs `e.Use` middleware after routing, so the path parameters are set:
+
+```go
+e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+    return func(c echo.Context) error {
+        params := make(map[string]string, len(c.ParamNames()))
+        for i, name := range c.ParamNames() {
+            params[name] = c.ParamValues()[i]
+        }
+        ctx := context.WithValue(c.Request().Context(), pathParamsKey{}, params)
+        ctx = context.WithValue(ctx, queryKey{}, c.QueryParams())
+        c.SetRequest(c.Request().WithContext(ctx))
+        return next(c)
+    }
+})
+```
+
+**Gin** applies middleware to the routes registered after it, so call `r.Use` first:
+
+```go
+r.Use(func(c *gin.Context) {
+    params := make(map[string]string, len(c.Params))
+    for _, p := range c.Params {
+        params[p.Key] = p.Value
+    }
+    ctx := context.WithValue(c.Request.Context(), pathParamsKey{}, params)
+    ctx = context.WithValue(ctx, queryKey{}, c.Request.URL.Query())
+    c.Request = c.Request.WithContext(ctx)
+    c.Next()
+})
+```
+
+**Gorilla/Mux**:
+
+```go
+r.Use(func(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+        ctx := context.WithValue(req.Context(), pathParamsKey{}, mux.Vars(req))
+        ctx = context.WithValue(ctx, queryKey{}, req.URL.Query())
+        next.ServeHTTP(w, req.WithContext(ctx))
+    })
+})
+```
+
+**Chi** keeps path parameters in the request context, so a handler reads them with `chi.URLParamFromCtx(ctx, "id")` instead of `pathParam`. Copy only the query, in middleware registered before the routes:
+
+```go
+r.Use(func(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+        ctx := context.WithValue(req.Context(), queryKey{}, req.URL.Query())
+        next.ServeHTTP(w, req.WithContext(ctx))
+    })
+})
+```
+
+**Fiber** runs `app.Use` middleware before it matches the route, so the path parameters are empty there. Register a handler on the same path before the apix route; it copies them and passes the request on:
+
+```go
+app.Get("/api/users/:id", func(c fiber.Ctx) error {
+    query := url.Values{}
+    for name, value := range c.Queries() {
+        query.Set(name, value)
+    }
+    ctx := context.WithValue(c.Context(), pathParamsKey{}, map[string]string{"id": c.Params("id")})
+    ctx = context.WithValue(ctx, queryKey{}, query)
+    c.SetContext(ctx)
+    return c.Next()
+})
+fiberadapter.Get(adapter, "/api/users/:id", getUser,
+    apix.WithParameter(apix.Parameter{
+        Name:       "id",
+        In:         "path",
+        SchemaType: "string",
+        Required:   true,
+    }),
 )
 ```
 
@@ -477,5 +644,5 @@ chiadapter.Post(chiAdapter, "/api/users", createUser, opts...)
 ginadapter.Post(ginAdapter, "/api/users", createUser, opts...)
 ```
 
-Only path parameter syntax needs adjustment when migrating.
+Path parameter syntax changes between routers, and so does the way path and query parameters reach a handler (see [Reading Path and Query Parameters](#reading-path-and-query-parameters)).
 

@@ -21,9 +21,11 @@ type Plugin interface {
 	// Return an error to prevent route registration.
 	OnRouteRegister(ref *RouteRef) error
 
-	// OnSchemaGenerate is called when a schema is generated for a type.
+	// OnSchemaGenerate is called once per build for each named struct type,
+	// after its component schema is generated. Inline structs, primitives,
+	// slices and maps do not reach it; OnSpecBuild sees the whole document.
 	// Plugins can modify the schema to add custom properties, validation, or extensions.
-	// The typeName parameter is the fully qualified type name (e.g., "mypackage.MyStruct").
+	// The typeName parameter is the component name (e.g., "models_User" for models.User).
 	OnSchemaGenerate(typeName string, schema *openapi3.Schema) error
 
 	// OnSpecBuild is called after the OpenAPI document is built, before it's returned.

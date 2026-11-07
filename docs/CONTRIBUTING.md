@@ -45,7 +45,7 @@ cd apix
 3. Add upstream remote:
 
 ```bash
-git remote add upstream https://github.com/Infra-Forge/apix.git
+git remote add upstream https://github.com/Dorico-Dynamics/infra-apix.git
 ```
 
 ## Development Setup
@@ -451,18 +451,13 @@ and `next-version_test.sh` beside it covers them.
    - Runs tests
    - Determines version from commits
    - Creates git tag
-   - Creates GitHub release
-   - Publishes to pkg.go.dev
+   - Creates GitHub release, whose notes link the version's pkg.go.dev page
 
-### Manual Release (Maintainers Only)
+pkg.go.dev adds a version once it is fetched through proxy.golang.org or requested on pkg.go.dev; the workflow does neither.
 
-```bash
-# Create tag
-git tag -a v0.3.0 -m "Release v0.3.0"
+### Manual Tags
 
-# Push tag
-git push origin v0.3.0
-```
+Do not tag releases by hand. The workflow computes the next version from the latest `vMAJOR.MINOR.PATCH` tag, so a hand-made tag changes every version after it.
 
 ## Development Tips
 
@@ -482,10 +477,9 @@ for _, r := range routes {
 ### Testing Locally
 
 ```bash
-# Test with local changes
+# Test with local changes: each example's go.mod replaces the module with ../..
 cd examples/infranotes
-go mod edit -replace github.com/Infra-Forge/apix=../..
-go run main.go
+go run .
 ```
 
 ### Common Issues
@@ -505,8 +499,7 @@ go run main.go
 
 ## Questions?
 
-- **Issues**: https://github.com/Infra-Forge/apix/issues
-- **Discussions**: https://github.com/Infra-Forge/apix/discussions
+- **Issues**: https://github.com/Dorico-Dynamics/infra-apix/issues
 - **Email**: support@infraforge.dev
 
 Thank you for contributing to apix! 🚀
