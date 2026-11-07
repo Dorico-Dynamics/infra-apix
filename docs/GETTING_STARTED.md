@@ -29,7 +29,7 @@ Complete guide to get started with `apix` for OpenAPI 3.1 generation in Go.
 ### Install the Library
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 ```
 
 ### Install Your Framework
@@ -53,12 +53,6 @@ go get github.com/gin-gonic/gin
 go get github.com/gofiber/fiber/v3
 ```
 
-### Install CLI Tool (Optional)
-
-```bash
-go install github.com/Infra-Forge/apix/cmd/apix@latest
-```
-
 ## Quick Start
 
 Let's build a simple user management API with Echo.
@@ -69,19 +63,29 @@ Let's build a simple user management API with Echo.
 mkdir my-api
 cd my-api
 go mod init github.com/yourusername/my-api
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 go get github.com/labstack/echo/v4
+go get github.com/google/uuid
 ```
 
 ### Step 2: Define Your Models
 
-Create `main.go`:
+Create `main.go`. Its import block already lists what Steps 3 and 4 add:
 
 ```go
 package main
 
 import (
     "context"
+    "log"
+    "time"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    echoadapter "github.com/Infra-Forge/infra-apix/echo"
+    "github.com/Infra-Forge/infra-apix/runtime"
+    "github.com/google/uuid"
+    "github.com/labstack/echo/v4"
+    "github.com/labstack/echo/v4/middleware"
 )
 
 // Request model
@@ -103,12 +107,9 @@ type UserResponse struct {
 
 ### Step 3: Implement Your Handler
 
-```go
-import (
-    "time"
-    "github.com/google/uuid"
-)
+Add to `main.go`:
 
+```go
 func createUser(ctx context.Context, req *CreateUserRequest) (UserResponse, error) {
     // In a real app, you'd save to a database
     return UserResponse{
@@ -123,17 +124,9 @@ func createUser(ctx context.Context, req *CreateUserRequest) (UserResponse, erro
 
 ### Step 4: Set Up Echo and apix
 
-```go
-import (
-    "log"
-    
-    "github.com/Infra-Forge/apix"
-    echoadapter "github.com/Infra-Forge/apix/echo"
-    "github.com/Infra-Forge/apix/runtime"
-    "github.com/labstack/echo/v4"
-    "github.com/labstack/echo/v4/middleware"
-)
+Add to `main.go`:
 
+```go
 func main() {
     // Create Echo instance
     e := echo.New()
@@ -166,7 +159,7 @@ func main() {
     log.Println("Server starting on :8080")
     log.Println("OpenAPI spec: http://localhost:8080/openapi.json")
     log.Println("Swagger UI: http://localhost:8080/swagger")
-    e.Start(":8080")
+    log.Fatal(e.Start(":8080"))
 }
 ```
 
@@ -240,7 +233,8 @@ func listUsers(ctx context.Context, _ *apix.NoBody) (UserListResponse, error) {
 }
 
 func getUser(ctx context.Context, _ *apix.NoBody) (UserResponse, error) {
-    // In a real app, fetch from database using path parameter
+    // In a real app, read the id (see "Reading Path and Query Parameters" in
+    // FRAMEWORK_GUIDES.md) and fetch the user from the database
     return UserResponse{
         ID:        "user-1",
         Name:      "John Doe",
@@ -251,14 +245,24 @@ func getUser(ctx context.Context, _ *apix.NoBody) (UserResponse, error) {
 }
 
 func updateUser(ctx context.Context, req *UpdateUserRequest) (UserResponse, error) {
-    // In a real app, update in database
-    return UserResponse{
+    // In a real app, load the user and save the fields the request sets
+    user := UserResponse{
         ID:        "user-1",
-        Name:      *req.Name,
+        Name:      "John Doe",
         Email:     "john@example.com",
         Age:       30,
         CreatedAt: time.Now().Format(time.RFC3339),
-    }, nil
+    }
+    if req.Name != nil {
+        user.Name = *req.Name
+    }
+    if req.Email != nil {
+        user.Email = *req.Email
+    }
+    if req.Age != nil {
+        user.Age = *req.Age
+    }
+    return user, nil
 }
 
 func deleteUser(ctx context.Context, _ *apix.NoBody) (apix.NoBody, error) {
@@ -319,6 +323,12 @@ func main() {
         apix.WithTags("Users"),
         apix.WithNotFoundError("User not found"),
         apix.WithStandardErrors(),
+        apix.WithParameter(apix.Parameter{
+            Name:       "id",
+            In:         "path",
+            SchemaType: "string",
+            Required:   true,
+        }),
     )
     
     // DELETE
@@ -326,6 +336,12 @@ func main() {
         apix.WithSummary("Delete user"),
         apix.WithTags("Users"),
         apix.WithNotFoundError("User not found"),
+        apix.WithParameter(apix.Parameter{
+            Name:       "id",
+            In:         "path",
+            SchemaType: "string",
+            Required:   true,
+        }),
     )
     
     // ... rest of setup
@@ -339,14 +355,19 @@ func main() {
 Serve the spec dynamically at runtime:
 
 ```go
+import "github.com/Infra-Forge/infra-apix/openapi"
+
 handler, err := runtime.NewHandler(runtime.Config{
     Title:           "My API",
     Version:         "1.0.0",
-    Description:     "User management API",
     Format:          "json", // or "yaml"
     EnableSwaggerUI: true,
     Servers:         []string{"https://api.example.com", "http://localhost:8080"},
     Validate:        true,
+    // Config has no description field; set it on the builder.
+    CustomizeBuilder: func(b *openapi.Builder) {
+        b.Info.Description = "User management API"
+    },
 })
 if err != nil {
     log.Fatal(err)
@@ -369,39 +390,34 @@ handler, err := runtime.NewHandler(runtime.Config{
 
 ### Add Security Schemes
 
+Declare every scheme that a route names with `apix.WithSecurity`. The build fails for a scheme a route names but nothing declares.
+
 ```go
 import "github.com/getkin/kin-openapi/openapi3"
 
 handler, err := runtime.NewHandler(runtime.Config{
     Title:   "My API",
     Version: "1.0.0",
-    CustomizeBuilder: func(b *openapi.Builder) {
-        b.SecuritySchemes = openapi3.SecuritySchemes{
-            "BearerAuth": &openapi3.SecuritySchemeRef{
-                Value: openapi3.NewJWTSecurityScheme(),
-            },
-        }
+    SecuritySchemes: openapi3.SecuritySchemes{
+        "BearerAuth": &openapi3.SecuritySchemeRef{
+            Value: openapi3.NewJWTSecurityScheme(),
+        },
     },
 })
 ```
 
 ## Generating Static Specs
 
-### Using CLI
+### From a Program
+
+Write the document to a file with a small program that registers your routes and prints the document (see [Programmatic Generation](OPENAPI_GENERATION.md#programmatic-generation)), then run it:
 
 ```bash
-# Generate YAML spec
-apix generate \
-  --title "My API" \
-  --version "1.0.0" \
-  --servers "https://api.example.com" \
-  --out docs/openapi.yaml
-
-# Generate JSON spec
-apix generate \
-  --format json \
-  --out docs/openapi.json
+mkdir -p docs
+go run ./cmd/openapi > docs/openapi.yaml
 ```
+
+The `apix` CLI cannot do this yet: it reads the routes registered in its own process, so it finds none (see [CLI_USAGE.md](CLI_USAGE.md)).
 
 ### CI Integration
 
@@ -428,8 +444,9 @@ jobs:
       
       - name: Check OpenAPI spec drift
         run: |
-          go install github.com/Infra-Forge/apix/cmd/apix@latest
-          apix spec-guard --existing docs/openapi.yaml
+          git ls-files --error-unmatch docs/openapi.yaml # git diff skips an untracked file
+          go run ./cmd/openapi > docs/openapi.yaml
+          git diff --exit-code docs/openapi.yaml
 ```
 
 ## Next Steps
@@ -463,8 +480,7 @@ jobs:
    ```go
    echoadapter.Post(adapter, "/api/users", createUser,
        apix.WithStandardErrors(),
-       apix.WithResponse(http.StatusConflict, &ErrorResponse{},
-           apix.WithDescription("User already exists")),
+       apix.WithConflictError("User already exists"),
    )
    ```
 
@@ -502,7 +518,6 @@ Visit http://localhost:8080/swagger to see a full-featured API with:
 
 ### Get Help
 
-- **Issues**: https://github.com/Infra-Forge/apix/issues
-- **Discussions**: https://github.com/Infra-Forge/apix/discussions
-- **Examples**: https://github.com/Infra-Forge/apix/tree/main/examples
+- **Issues**: https://github.com/Dorico-Dynamics/infra-apix/issues
+- **Examples**: https://github.com/Dorico-Dynamics/infra-apix/tree/main/examples
 

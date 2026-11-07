@@ -4,7 +4,7 @@
 
 [![Go Version](https://img.shields.io/badge/go-1.27.3+-blue.svg)](https://go.dev/dl/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen.svg)](coverage.out)
+[![Test & Lint](https://github.com/Dorico-Dynamics/infra-apix/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Dorico-Dynamics/infra-apix/actions/workflows/test.yml)
 
 `apix` is a Go library that generates deterministic OpenAPI 3.1 specifications directly from your typed HTTP handlers. No comments, no YAML editing, no drift—just code.
 
@@ -16,8 +16,8 @@ Current Go OpenAPI tooling (swaggo, spec-first generators) relies on comments or
 - **Type-safe**: Generic handlers `HandlerFunc[TReq, TResp]` with compile-time safety
 - **Deterministic**: Sorted paths/components for git-friendly diffs
 - **DX defaults**: 201 for POST, 204 for DELETE, 401/403 on secured routes
-- **Runtime + CLI**: Serve `/openapi.json` live or generate static specs with `apix generate`
-- **Guardrails**: DO-NOT-EDIT headers, CI drift checks, spec-guard command
+- **Runtime**: Serve `/openapi.json` live, or write a static spec from a program of yours
+- **Guardrails**: DO-NOT-EDIT headers and CI drift checks on the committed spec
 
 ## Features
 
@@ -26,16 +26,16 @@ Current Go OpenAPI tooling (swaggo, spec-first generators) relies on comments or
 - ✅ **Struct tag parsing** (`json`, `validate`, `binding`)
 - ✅ **Nullable types** (pointer detection)
 - ✅ **Security schemes** (route-level and global)
-- ✅ **Standard error responses** (shared ErrorResponse schema for 4xx/5xx)
+- ✅ **Standard error responses** (shared ErrorResponse schema for 4xx/5xx, sent once you set an [`ErrorHandler`](docs/API_REFERENCE.md#errorresponse))
 - ✅ **Custom parameters** (query, path, header)
 - ✅ **Runtime endpoints** (`/openapi.json`, optional Swagger UI)
-- ✅ **CLI tool** (`apix generate`, `apix spec-guard`)
+- ⚠️ **CLI tool** (`apix generate`, `apix spec-guard`): finds no routes yet ([status](docs/CLI_USAGE.md))
 - ✅ **Validation** (kin-openapi validation + custom validators)
 
 ## Installation
 
 ```bash
-go get github.com/Infra-Forge/apix
+go get github.com/Infra-Forge/infra-apix
 ```
 
 ## Quick Start
@@ -46,14 +46,15 @@ Choose your framework: [Echo](#echo-example) | [Chi](#chi-example) | [Gorilla/Mu
 
 #### 1. Define your models and handlers
 
+Create `items.go`:
+
 ```go
 package main
 
 import (
     "context"
-    "github.com/Infra-Forge/apix"
-    echoadapter "github.com/Infra-Forge/apix/echo"
-    "github.com/labstack/echo/v4"
+
+    apix "github.com/Infra-Forge/infra-apix"
 )
 
 type CreateItemRequest struct {
@@ -75,11 +76,29 @@ func createItemHandler(ctx context.Context, req *CreateItemRequest) (ItemRespons
         CreatedAt: "2025-01-01T00:00:00Z",
     }, nil
 }
+
+func listItemsHandler(ctx context.Context, _ *apix.NoBody) ([]ItemResponse, error) {
+    return []ItemResponse{{ID: "item-123", Name: "Notebook", CreatedAt: "2025-01-01T00:00:00Z"}}, nil
+}
 ```
 
-### 2. Register routes with the Echo adapter
+#### 2. Register routes and serve the OpenAPI document
+
+Create `main.go`:
 
 ```go
+package main
+
+import (
+    "log"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    echoadapter "github.com/Infra-Forge/infra-apix/echo"
+    "github.com/Infra-Forge/infra-apix/runtime"
+    "github.com/getkin/kin-openapi/openapi3"
+    "github.com/labstack/echo/v4"
+)
+
 func main() {
     e := echo.New()
     adapter := echoadapter.New(e)
@@ -88,56 +107,56 @@ func main() {
     echoadapter.Post(adapter, "/api/items", createItemHandler,
         apix.WithSummary("Create a new item"),
         apix.WithTags("items"),
-        apix.WithSecurity("BearerAuth"),
+        apix.WithSecurity("BearerAuth"), // documents the requirement; it checks no token
     )
 
-    echoadapter.Get(adapter, "/api/items/:id", getItemHandler,
-        apix.WithSummary("Get item by ID"),
+    echoadapter.Get(adapter, "/api/items", listItemsHandler,
+        apix.WithSummary("List items"),
         apix.WithTags("items"),
     )
 
-    e.Start(":8080")
-}
-```
-
-### 3. Serve OpenAPI spec at runtime
-
-```go
-import (
-    "github.com/Infra-Forge/apix/runtime"
-)
-
-func main() {
-    // ... register routes ...
-
-    // Serve OpenAPI spec
-    handler, _ := runtime.NewHandler(runtime.Config{
+    // Serve the OpenAPI document and Swagger UI
+    handler, err := runtime.NewHandler(runtime.Config{
         Title:           "My API",
         Version:         "1.0.0",
         Format:          "json",
         EnableSwaggerUI: true,
-        Servers:         []string{"https://api.example.com"},
+        // Declare every scheme a route names with apix.WithSecurity
+        SecuritySchemes: openapi3.SecuritySchemes{
+            "BearerAuth": &openapi3.SecuritySchemeRef{Value: openapi3.NewJWTSecurityScheme()},
+        },
     })
+    if err != nil {
+        log.Fatal(err)
+    }
     handler.RegisterEcho(e)
 
     // Now available at:
     // - GET /openapi.json (spec)
     // - GET /swagger (Swagger UI)
-
-    e.Start(":8080")
+    log.Fatal(e.Start(":8080"))
 }
 ```
 
+Run it with `go mod tidy && go run .`.
+
+`apix.WithSecurity` only documents the requirement. These examples check no token, so `POST /api/items` accepts a request without one; put your authentication middleware in front of the routes it protects.
+
 ### Chi Example
+
+With `items.go` from the Echo example, replace `main.go` with:
 
 ```go
 package main
 
 import (
-    "context"
+    "log"
     "net/http"
-    "github.com/Infra-Forge/apix"
-    chiadapter "github.com/Infra-Forge/apix/chi"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    chiadapter "github.com/Infra-Forge/infra-apix/chi"
+    "github.com/Infra-Forge/infra-apix/runtime"
+    "github.com/getkin/kin-openapi/openapi3"
     "github.com/go-chi/chi/v5"
 )
 
@@ -149,36 +168,49 @@ func main() {
     chiadapter.Post(adapter, "/api/items", createItemHandler,
         apix.WithSummary("Create a new item"),
         apix.WithTags("items"),
-        apix.WithSecurity("BearerAuth"),
+        apix.WithSecurity("BearerAuth"), // documents the requirement; it checks no token
     )
 
-    chiadapter.Get(adapter, "/api/items/{id}", getItemHandler,
-        apix.WithSummary("Get item by ID"),
+    chiadapter.Get(adapter, "/api/items", listItemsHandler,
+        apix.WithSummary("List items"),
         apix.WithTags("items"),
     )
 
-    // Serve OpenAPI spec
-    handler, _ := runtime.NewHandler(runtime.Config{
+    // Serve the OpenAPI document and Swagger UI
+    handler, err := runtime.NewHandler(runtime.Config{
         Title:           "My API",
         Version:         "1.0.0",
         EnableSwaggerUI: true,
+        SecuritySchemes: openapi3.SecuritySchemes{
+            "BearerAuth": &openapi3.SecuritySchemeRef{Value: openapi3.NewJWTSecurityScheme()},
+        },
     })
-    handler.RegisterHTTP(http.NewServeMux()) // or use Chi router
+    if err != nil {
+        log.Fatal(err)
+    }
+    docs := http.NewServeMux()
+    handler.RegisterHTTP(docs)
+    r.Mount("/", docs) // paths no other route matches
 
-    http.ListenAndServe(":8080", r)
+    log.Fatal(http.ListenAndServe(":8080", r))
 }
 ```
 
 ### Gorilla/Mux Example
 
+With `items.go` from the Echo example, replace `main.go` with:
+
 ```go
 package main
 
 import (
-    "context"
+    "log"
     "net/http"
-    "github.com/Infra-Forge/apix"
-    muxadapter "github.com/Infra-Forge/apix/mux"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    muxadapter "github.com/Infra-Forge/infra-apix/mux"
+    "github.com/Infra-Forge/infra-apix/runtime"
+    "github.com/getkin/kin-openapi/openapi3"
     "github.com/gorilla/mux"
 )
 
@@ -190,42 +222,44 @@ func main() {
     muxadapter.Post(adapter, "/api/items", createItemHandler,
         apix.WithSummary("Create a new item"),
         apix.WithTags("items"),
-        apix.WithSecurity("BearerAuth"),
+        apix.WithSecurity("BearerAuth"), // documents the requirement; it checks no token
     )
 
-    muxadapter.Get(adapter, "/api/items/{id}", getItemHandler,
-        apix.WithSummary("Get item by ID"),
+    muxadapter.Get(adapter, "/api/items", listItemsHandler,
+        apix.WithSummary("List items"),
         apix.WithTags("items"),
     )
 
-    // Serve OpenAPI spec
-    handler, _ := runtime.NewHandler(runtime.Config{
+    // Serve the OpenAPI document and Swagger UI
+    handler, err := runtime.NewHandler(runtime.Config{
         Title:           "My API",
         Version:         "1.0.0",
         EnableSwaggerUI: true,
+        SecuritySchemes: openapi3.SecuritySchemes{
+            "BearerAuth": &openapi3.SecuritySchemeRef{Value: openapi3.NewJWTSecurityScheme()},
+        },
     })
-    handler.RegisterHTTP(http.NewServeMux()) // or use Mux router
+    if err != nil {
+        log.Fatal(err)
+    }
+    docs := http.NewServeMux()
+    handler.RegisterHTTP(docs)
+    r.PathPrefix("/").Handler(docs) // registered last, so it gets what the routes above do not
 
-    http.ListenAndServe(":8080", r)
+    log.Fatal(http.ListenAndServe(":8080", r))
 }
 ```
 
-### Generate static spec with CLI
+### Generate a static spec
+
+Write the spec with a small program that registers your routes and prints the document (see [Programmatic Generation](docs/OPENAPI_GENERATION.md#programmatic-generation)):
 
 ```bash
-# Install CLI
-go install github.com/Infra-Forge/apix/cmd/apix@latest
-
-# Generate spec
-apix generate \
-  --title "My API" \
-  --version "1.0.0" \
-  --servers "https://api.example.com" \
-  --out docs/openapi.yaml
-
-# Check for drift in CI
-apix spec-guard --existing docs/openapi.yaml
+mkdir -p docs
+go run ./cmd/openapi > docs/openapi.yaml
 ```
+
+The `apix` CLI cannot do this yet: it reads the routes registered in its own process, so it finds none (see [CLI Usage](docs/CLI_USAGE.md)).
 
 ## Route Options
 
@@ -329,7 +363,11 @@ Supported tags:
 - `binding`: Required fields (`required`)
 - `description`: Field-level documentation
 
+A `validate` or `binding` rule whose name contains `required`, such as `required_if`, also marks the field required, unconditionally ([Validation Tags](docs/OPENAPI_GENERATION.md#validation-tags)).
+
 ## CLI Reference
+
+The CLI cannot generate your API's document yet: it reads the routes registered in its own process, so it finds none (see [CLI Usage](docs/CLI_USAGE.md)). Its commands and flags:
 
 ### `apix generate`
 
@@ -365,30 +403,21 @@ Exit codes:
   1: Drift detected or error
 ```
 
-### CI Integration
-
-```yaml
-# .github/workflows/ci.yml
-- name: Check OpenAPI spec drift
-  run: |
-    go run ./cmd/apix spec-guard --existing docs/openapi.yaml
-```
-
 ## Guardrails & Enforcement
 
-Prevent manual spec edits and ensure your OpenAPI spec stays in sync with your code.
+Prevent manual spec edits and ensure your OpenAPI spec stays in sync with your code. The examples run the program from [Programmatic Generation](docs/OPENAPI_GENERATION.md#programmatic-generation), kept at `./cmd/openapi` in your application.
 
 ### 1. DO-NOT-EDIT Header
 
-All generated specs include a header warning against manual edits:
+Start the committed spec with a header warning against manual edits, as that program does:
 
 ```yaml
-# DO NOT EDIT -- generated by apix generate -- update Go handlers instead
+# DO NOT EDIT -- generated by go run ./cmd/openapi -- update Go handlers instead
 ```
 
 ### 2. CI Drift Detection
 
-The `spec-guard` command detects when your committed spec drifts from your code.
+Regenerate the spec in CI, and fail when it differs from the committed one.
 
 **Note:** This is for applications that **use** apix, not the apix library itself.
 
@@ -405,29 +434,30 @@ jobs:
 
       - name: Check OpenAPI spec drift
         run: |
-          go run ./cmd/apix generate --out docs/openapi.yaml
+          git ls-files --error-unmatch docs/openapi.yaml # git diff skips an untracked file
+          go run ./cmd/openapi > docs/openapi.yaml
           if ! git diff --exit-code docs/openapi.yaml; then
             echo "❌ OpenAPI spec has drifted from code!"
             exit 1
           fi
 ```
 
-Or use the Makefile:
-
-```bash
-make check-spec  # Check for drift
-make ci          # Run all CI checks (fmt, lint, test, check-spec)
-```
-
 ### 3. Pre-commit Hook
 
-Install a git hook to prevent commits with spec drift:
+Run the same check before each commit, with an executable `.git/hooks/pre-commit` in your application. It builds the spec from the staged files, so a route change you have not staged cannot make the staged spec pass:
 
 ```bash
-make install-hooks
+#!/bin/sh
+# Generate the spec from the staged files, so unstaged changes do not count
+tree=$(mktemp -d) || exit 1
+trap 'rm -rf "$tree"' EXIT
+git checkout-index --all --prefix="$tree/" || exit 1
+(cd "$tree" && go run ./cmd/openapi > docs/openapi.yaml) || exit 1
+if ! git show :docs/openapi.yaml | cmp -s - "$tree/docs/openapi.yaml"; then
+    echo "docs/openapi.yaml does not match the staged code: regenerate and stage it" >&2
+    exit 1
+fi
 ```
-
-This installs `.githooks/pre-commit` which runs `apix spec-guard` before each commit.
 
 To bypass (not recommended):
 ```bash
@@ -449,18 +479,17 @@ This requires approval from designated reviewers for any spec changes.
 ### Complete Guardrails Setup
 
 ```bash
-# 1. Generate initial spec
-make generate-spec
+# 1. Generate the initial spec with ./cmd/openapi
+mkdir -p docs
+go run ./cmd/openapi > docs/openapi.yaml
 
-# 2. Install pre-commit hook
-make install-hooks
+# 2. Save the hook from step 3 as .git/hooks/pre-commit, and make it executable
+chmod +x .git/hooks/pre-commit
 
-# 3. Configure CODEOWNERS (see .github/CODEOWNERS)
+# 3. Add the CI job from step 2 and the CODEOWNERS entries from step 4
 
-# 4. Add CI check (see .github/workflows/test.yml)
-
-# 5. Commit everything
-git add docs/openapi.yaml .github/CODEOWNERS
+# 4. Commit everything
+git add cmd/openapi docs/openapi.yaml .github/workflows/ci.yml .github/CODEOWNERS
 git commit -m "feat: add OpenAPI spec with guardrails"
 ```
 
@@ -599,31 +628,34 @@ Each example demonstrates:
 
 ## Roadmap
 
-### ✅ Milestone 1 (v0.1) - Complete
+### ✅ Milestone 1 - Complete
 - Echo adapter with typed handlers
 - Struct tag parsing, nullable types
 - OpenAPI 3.1 builder with deterministic output
-- CLI (`generate`, `spec-guard`)
+- CLI (`generate`, `spec-guard`); it finds no routes yet (see [CLI Usage](docs/CLI_USAGE.md))
 - Runtime endpoints with Swagger UI
 
-### ✅ Milestone 2 (v0.2) - Complete
-- ✅ Chi adapter (88% test coverage)
-- ✅ Gorilla/Mux adapter (88% test coverage)
-- ✅ Gin adapter (87.5% test coverage)
-- ✅ Fiber adapter (86.9% test coverage)
+### ✅ Milestone 2 - Complete
+- ✅ Chi adapter
+- ✅ Gorilla/Mux adapter
+- ✅ Gin adapter
+- ✅ Fiber adapter
 - ✅ Shared error schema with standard 4xx/5xx responses
 - ✅ Golden tests for spec validation
 - ✅ Integration tests for all 5 frameworks
 - ✅ Comprehensive documentation
 
-### 🔮 Milestone 3 (v0.3) - Planned
+### 🚧 Milestone 3 - In progress
+- ✅ Structured examples via tags/helpers
+- ✅ Multipart/form-data and form-urlencoded request bodies in the spec
+- ✅ Plugin hooks for custom metadata
+- ✅ Structured logging (`apix.SetLogger`)
 - Typed query/header parameter structs
 - Middleware auto-detection for security
 - Pagination headers, ETag support
-- Structured examples via tags/helpers
-- Multipart/form-data support
-- Plugin hooks for custom metadata
-- Observability (logging, metrics)
+- Multipart and form decoding in the adapters
+- Metrics
+- A CLI that loads your routes
 
 ## Testing
 
@@ -638,9 +670,7 @@ make cover
 make cover-html
 ```
 
-Current coverage: **85%+** (exceeds 80% target)
-- Core: 89%
-- All framework adapters: 82.5%-88%
+CI runs the tests with the race detector on every push and pull request to `main`, and fails when total coverage is below 80%.
 
 ## Contributing
 
@@ -655,8 +685,7 @@ We welcome contributions! Please see our [Contributing Guide](docs/CONTRIBUTING.
 
 ## Community
 
-- **Issues**: [GitHub Issues](https://github.com/Infra-Forge/apix/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/Infra-Forge/apix/discussions)
+- **Issues**: [GitHub Issues](https://github.com/Dorico-Dynamics/infra-apix/issues)
 - **Examples**: [examples/](examples/)
 
 ## License
@@ -665,6 +694,6 @@ MIT License - see [LICENSE](LICENSE) for details
 
 ---
 
-**Status**: Milestone 1 & 2 complete (5 framework adapters, comprehensive documentation)
+**Status**: v1, released from `main` ([releases](https://github.com/Dorico-Dynamics/infra-apix/releases)); Milestones 1 and 2 complete, Milestone 3 in progress
 **Maintainer**: Teodorico Mazivila
-**Repository**: [github.com/Infra-Forge/apix](https://github.com/Infra-Forge/apix)
+**Repository**: [github.com/Dorico-Dynamics/infra-apix](https://github.com/Dorico-Dynamics/infra-apix)

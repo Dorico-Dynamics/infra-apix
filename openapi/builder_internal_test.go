@@ -42,6 +42,38 @@ func TestSchemaRefFromTypePrimitives(t *testing.T) {
 	}
 }
 
+// TestIntegerFormatsHoldTheGoRange: each integer kind's format holds every
+// value of its Go type on any build platform: int and uint are 64-bit on amd64
+// and arm64, and uint32 exceeds int32.
+func TestIntegerFormatsHoldTheGoRange(t *testing.T) {
+	b := newTestBuilder()
+	cases := []struct {
+		value  any
+		format string
+	}{
+		{int(0), "int64"},
+		{int8(0), "int32"},
+		{int16(0), "int32"},
+		{int32(0), "int32"},
+		{int64(0), "int64"},
+		{uint(0), "int64"},
+		{uint8(0), "int32"},
+		{uint16(0), "int32"},
+		{uint32(0), "int64"},
+		{uint64(0), "int64"},
+	}
+	for _, tc := range cases {
+		typ := reflect.TypeOf(tc.value)
+		ref, err := b.schemaRefFromType(typ)
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", typ, err)
+		}
+		if !ref.Value.Type.Is("integer") || ref.Value.Format != tc.format {
+			t.Errorf("%s: type %v, format %q; want integer, %q", typ, ref.Value.Type, ref.Value.Format, tc.format)
+		}
+	}
+}
+
 func TestSchemaRefFromTypePointerNullable(t *testing.T) {
 	b := newTestBuilder()
 	ref, err := b.schemaRefFromType(reflect.TypeOf(&struct{ Name string }{}))

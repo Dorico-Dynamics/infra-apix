@@ -2,6 +2,15 @@
 
 Complete guide to using the `apix` command-line tool.
 
+> **Status:** the CLI cannot generate your API's document yet. `apix generate` and `apix spec-guard` build it from the routes registered in their own process, and your routes are registered in your program, so both commands find none and exit 1:
+>
+> ```text
+> apix generate: no routes registered; ensure your handlers register with apix
+> apix spec-guard: generate spec: no routes registered; ensure your handlers register with apix
+> ```
+>
+> Write the document from a program of yours instead (see [Programmatic Generation](OPENAPI_GENERATION.md#programmatic-generation)), or serve it with `runtime.NewHandler`.
+
 ## Table of Contents
 
 - [Installation](#installation)
@@ -16,13 +25,13 @@ Complete guide to using the `apix` command-line tool.
 ### Install from Source
 
 ```bash
-go install github.com/Infra-Forge/apix/cmd/apix@latest
+go install github.com/Infra-Forge/infra-apix/cmd/apix@latest
 ```
 
 ### Install Specific Version
 
 ```bash
-go install github.com/Infra-Forge/apix/cmd/apix@v0.2.0
+go install github.com/Infra-Forge/infra-apix/cmd/apix@v1.8.0
 ```
 
 ### Verify Installation
@@ -227,7 +236,7 @@ jobs:
           go-version: '1.27'
       
       - name: Install apix CLI
-        run: go install github.com/Infra-Forge/apix/cmd/apix@latest
+        run: go install github.com/Infra-Forge/infra-apix/cmd/apix@latest
       
       - name: Run tests
         run: go test ./...
@@ -244,7 +253,7 @@ Add to `.gitlab-ci.yml`:
 test:
   image: golang:1.27
   script:
-    - go install github.com/Infra-Forge/apix/cmd/apix@latest
+    - go install github.com/Infra-Forge/infra-apix/cmd/apix@latest
     - go test ./...
     - apix spec-guard --existing docs/openapi.yaml
 ```
@@ -399,7 +408,7 @@ apix generate: no routes registered; ensure your handlers register with apix
 ```
 
 **Solution:**
-Make sure your code registers routes before running the CLI. The CLI needs to import and execute your code to discover routes.
+The CLI cannot load your code, so it reports this for every project (see the status note at the top). Write the document from a program of yours instead (see [Programmatic Generation](OPENAPI_GENERATION.md#programmatic-generation)).
 
 ### Spec Validation Failed
 

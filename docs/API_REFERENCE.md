@@ -5,13 +5,14 @@ Complete API documentation for the `apix` library.
 ## Table of Contents
 
 - [Core Types](#core-types)
-- [Handler Signature](#handler-signature)
 - [Route Options](#route-options)
 - [Framework Adapters](#framework-adapters)
 - [OpenAPI Builder](#openapi-builder)
 - [Runtime Server](#runtime-server)
 - [CLI Commands](#cli-commands)
+- [Registry Functions](#registry-functions)
 - [Logging](#logging)
+- [Error Types](#error-types)
 
 ## Core Types
 
@@ -115,6 +116,9 @@ type RouteRef struct {
 
     // Parameter metadata
     Parameters []Parameter
+
+    // Handler type, for debugging and extensions
+    HandlerType reflect.Type
 }
 ```
 
@@ -229,7 +233,7 @@ apix.WithDeprecated()
 
 ### WithSecurity
 
-Adds security requirements to the operation.
+Adds security requirements to the operation. It documents them only: the adapter checks no credentials, so authentication middleware must protect the route.
 
 ```go
 func WithSecurity(name string, scopes ...string) RouteOption
@@ -253,8 +257,17 @@ Adds a query, path, or header parameter.
 func WithParameter(param Parameter) RouteOption
 ```
 
+apix does not read path parameters from the route: declare each one, with `In: "path"` and `Required: true`. A document that leaves one out, or does not mark it required, is not valid OpenAPI, and `runtime.Config{Validate: true}` answers the spec endpoint with a 500.
+
 **Example:**
 ```go
+apix.WithParameter(apix.Parameter{
+    Name:        "id",
+    In:          "path",
+    Description: "User ID",
+    SchemaType:  "string",
+    Required:    true,
+})
 apix.WithParameter(apix.Parameter{
     Name:        "page",
     In:          "query",
@@ -307,7 +320,7 @@ apix.WithSuccessHeaders(http.StatusCreated, apix.HeaderRef{
 
 ### WithStandardErrors
 
-Adds standard 4xx/5xx error responses using the shared `ErrorResponse` schema.
+Documents standard 4xx/5xx error responses with the shared `ErrorResponse` schema. The adapters send their own error bodies unless an `ErrorHandler` sends this one (see [ErrorResponse](#errorresponse)).
 
 ```go
 func WithStandardErrors() RouteOption
@@ -315,6 +328,7 @@ func WithStandardErrors() RouteOption
 
 **Adds:**
 - 400 Bad Request
+- 422 Unprocessable Entity
 - 500 Internal Server Error
 
 **Example:**
@@ -385,11 +399,11 @@ frameworkadapter.Get(adapter, "/path", handler, options...)
 
 ### Echo Adapter
 
-**Package:** `github.com/Infra-Forge/apix/echo`
+**Package:** `github.com/Infra-Forge/infra-apix/echo`
 
 ```go
 import (
-    echoadapter "github.com/Infra-Forge/apix/echo"
+    echoadapter "github.com/Infra-Forge/infra-apix/echo"
     "github.com/labstack/echo/v4"
 )
 
@@ -411,13 +425,15 @@ echoadapter.Post(adapter, "/api/users", createUser,
 - `Patch[TReq, TResp](adapter, path, handler, opts...)`
 - `Delete[TResp](adapter, path, handler, opts...)`
 
+**Path Parameters:** Use `:id` syntax (Echo standard), and declare each parameter with [`WithParameter`](#withparameter)
+
 ### Chi Adapter
 
-**Package:** `github.com/Infra-Forge/apix/chi`
+**Package:** `github.com/Infra-Forge/infra-apix/chi`
 
 ```go
 import (
-    chiadapter "github.com/Infra-Forge/apix/chi"
+    chiadapter "github.com/Infra-Forge/infra-apix/chi"
     "github.com/go-chi/chi/v5"
 )
 
@@ -429,15 +445,15 @@ chiadapter.Post(adapter, "/api/users", createUser,
 )
 ```
 
-**Path Parameters:** Use `{id}` syntax (Chi standard)
+**Path Parameters:** Use `{id}` syntax (Chi standard), and declare each parameter with [`WithParameter`](#withparameter)
 
 ### Gorilla/Mux Adapter
 
-**Package:** `github.com/Infra-Forge/apix/mux`
+**Package:** `github.com/Infra-Forge/infra-apix/mux`
 
 ```go
 import (
-    muxadapter "github.com/Infra-Forge/apix/mux"
+    muxadapter "github.com/Infra-Forge/infra-apix/mux"
     "github.com/gorilla/mux"
 )
 
@@ -449,15 +465,15 @@ muxadapter.Post(adapter, "/api/users", createUser,
 )
 ```
 
-**Path Parameters:** Use `{id}` syntax (Mux standard)
+**Path Parameters:** Use `{id}` syntax (Mux standard), and declare each parameter with [`WithParameter`](#withparameter)
 
 ### Gin Adapter
 
-**Package:** `github.com/Infra-Forge/apix/gin`
+**Package:** `github.com/Infra-Forge/infra-apix/gin`
 
 ```go
 import (
-    ginadapter "github.com/Infra-Forge/apix/gin"
+    ginadapter "github.com/Infra-Forge/infra-apix/gin"
     "github.com/gin-gonic/gin"
 )
 
@@ -469,15 +485,15 @@ ginadapter.Post(adapter, "/api/users", createUser,
 )
 ```
 
-**Path Parameters:** Use `:id` syntax (Gin standard)
+**Path Parameters:** Use `:id` syntax (Gin standard), and declare each parameter with [`WithParameter`](#withparameter)
 
 ### Fiber Adapter
 
-**Package:** `github.com/Infra-Forge/apix/fiber`
+**Package:** `github.com/Infra-Forge/infra-apix/fiber`
 
 ```go
 import (
-    fiberadapter "github.com/Infra-Forge/apix/fiber"
+    fiberadapter "github.com/Infra-Forge/infra-apix/fiber"
     "github.com/gofiber/fiber/v3"
 )
 
@@ -489,11 +505,11 @@ fiberadapter.Post(adapter, "/api/users", createUser,
 )
 ```
 
-**Path Parameters:** Use `:id` syntax (Fiber standard)
+**Path Parameters:** Use `:id` syntax (Fiber standard), and declare each parameter with [`WithParameter`](#withparameter)
 
 ## OpenAPI Builder
 
-**Package:** `github.com/Infra-Forge/apix/openapi`
+**Package:** `github.com/Infra-Forge/infra-apix/openapi`
 
 ### Builder
 
@@ -522,8 +538,8 @@ security requirement names a scheme that neither `SecuritySchemes` nor an
 
 ```go
 import (
-    "github.com/Infra-Forge/apix"
-    "github.com/Infra-Forge/apix/openapi"
+    apix "github.com/Infra-Forge/infra-apix"
+    "github.com/Infra-Forge/infra-apix/openapi"
     "github.com/getkin/kin-openapi/openapi3"
 )
 
@@ -565,7 +581,7 @@ func EncodeDocument(doc *openapi3.T, format string) ([]byte, string, error)
 
 ## Runtime Server
 
-**Package:** `github.com/Infra-Forge/apix/runtime`
+**Package:** `github.com/Infra-Forge/infra-apix/runtime`
 
 ### Config
 
@@ -593,7 +609,7 @@ type Config struct {
     SpecPath      string // Default: "/openapi.json", or "/openapi.yaml" for YAML
     SwaggerUIPath string // Default: "/swagger"
 
-    // Swagger UI
+    // Swagger UI: the embedded page and its files (see Swagger UI below)
     EnableSwaggerUI bool
 
     // Advanced customization
@@ -645,7 +661,57 @@ mux := http.NewServeMux()
 handler.RegisterHTTP(mux)
 ```
 
+### Swagger UI
+
+With `EnableSwaggerUI` set, `RegisterHTTP` and `RegisterEcho` serve a Swagger UI page at `SwaggerUIPath` and the files it loads below that path:
+
+| Path (default `SwaggerUIPath`) | Content |
+|--------------------------------|---------|
+| `/swagger` | The page |
+| `/swagger/swagger-ui.css`, `/swagger/swagger-ui-bundle.js` | swagger-ui-dist 5.34.1, embedded in the binary and unmodified. Its Apache-2.0 `LICENSE` and `NOTICE` are in `internal/swaggerui/swagger-ui-dist/` |
+| `/swagger/swagger-initializer.js` | Starts Swagger UI with the document at `SpecPath` |
+
+The page loads nothing from another origin and runs no inline script, so it is served with this Content-Security-Policy:
+
+```text
+default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:;
+connect-src 'self' <origins of Servers>; media-src 'self' <origins of Servers>;
+frame-ancestors 'none'; base-uri 'none'; form-action 'none'
+```
+
+- **Requests.** The page fetches the document, and Try it out sends requests to the server selected in the page. `connect-src` admits the page's origin and the origin of each absolute `http` or `https` URL in `Servers`. A relative server is the page's origin. A server that `CustomizeBuilder` or a plugin adds is not admitted, so add it to `Servers`. A URL with server variables or an IPv6 address cannot be named in a policy, so requests to it are blocked.
+- **Images and audio.** The stylesheet's icons are `data:` URLs, and image responses render from `blob:` URLs. Images in descriptions load only from the page's origin. Audio responses play from the request's URL, so `media-src` admits the same origins as `connect-src`.
+- **Caching.** The page is sent with `Cache-Control: no-store`. The files are sent with an `ETag` and `Cache-Control: no-cache`, so a browser revalidates them and receives `304 Not Modified`. Every response carries `X-Content-Type-Options: nosniff`.
+- **Other routers.** Mount the `ServeMux` that `RegisterHTTP` filled for the page's path and the paths below it: `r.Mount("/", mux)` with chi, `r.PathPrefix("/swagger").Handler(mux)` with gorilla/mux, and both `r.Any("/swagger", h)` and `r.Any("/swagger/*file", h)` with Gin, where `h` is `gin.WrapH(mux)`.
+- **Write failures.** A page or file the client did not receive in full is logged like the document (see [Logging](#logging)).
+
+`runtime.RenderSwaggerUI(specPath)` returns a standalone page that loads the same release from unpkg.com, checked with Subresource Integrity. It starts Swagger UI from an inline script, so a Content-Security-Policy must allow that script.
+
+### Serving the Document and the UI
+
+The document describes every route registered with apix, internal ones included, with their parameters, schemas and security requirements. The UI makes those routes callable from a browser. Choose one mode per environment:
+
+| Mode | When | How |
+|------|------|-----|
+| Off | Production, unless the API is public | Leave `EnableSwaggerUI` unset and do not register the handler on the public router. Publish a document generated at build time instead, with a program that registers your routes ([Programmatic Generation](OPENAPI_GENERATION.md#programmatic-generation)). |
+| Internal | Operators and developers need the live document | Register the handler on a server only they can reach: a loopback listener reached through a port-forward or tunnel, an internal network, or an authenticating proxy. |
+| Public | The API and every route in its document are public | Register the handler on the public router, after reviewing the document. |
+
+```go
+// Internal: the document and the UI on their own loopback listener.
+docs := http.NewServeMux()
+handler.RegisterHTTP(docs)
+docsServer := &http.Server{Addr: "127.0.0.1:9090", Handler: docs, ReadHeaderTimeout: 5 * time.Second}
+go func() {
+    if err := docsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+        log.Printf("docs server: %v", err)
+    }
+}()
+```
+
 ## CLI Commands
+
+The CLI cannot generate your API's document yet: it finds no routes (see the status note in [CLI_USAGE.md](CLI_USAGE.md)).
 
 ### apix generate
 
@@ -747,13 +813,76 @@ Standard error response schema used for 4xx/5xx responses.
 
 ```go
 type ErrorResponse struct {
-    Error   string `json:"error"`
-    Message string `json:"message,omitempty"`
-    Code    string `json:"code,omitempty"`
+    Code    string `json:"code" description:"Error code identifier"`
+    Message string `json:"message" description:"Human-readable error message"`
+    Details any    `json:"details,omitempty" description:"Additional error details"`
 }
 ```
 
 **Usage:**
 
-Automatically included when using `WithStandardErrors()` or `WithNotFoundError()`.
+Every error option documents this schema, except `WithCustomErrorResponse`, which documents the model you pass. When two options name the same status, the first one wins: `WithStandardErrors()` followed by `WithCustomErrorResponse(400, …)` documents `ErrorResponse` for 400, so put the custom option first.
+
+The error options only document responses; they do not change what an adapter sends. Without an `ErrorHandler`, an error with a 4xx or 5xx status is sent as:
+
+| Adapter | Body for `apix.NotFound("User not found")` |
+|---------|--------------------------------------------|
+| chi, mux | `text/plain`: `http 404 [NOT_FOUND]: User not found` |
+| gin, fiber | `{"error":"http 404 [NOT_FOUND]: User not found"}` |
+| echo | `{"message":"http 404 [NOT_FOUND]: User not found"}`, from Echo's `HTTPErrorHandler` |
+
+Any other error is sent as a 500 whose text is `Internal Server Error`. With `UseProblemDetails`, the body is `application/problem+json` (Echo also needs `ProblemDetailsErrorHandler`), while the error options still document `ErrorResponse` as `application/json`.
+
+To send the documented `ErrorResponse`, set the adapter's `ErrorHandler`. For chi and mux:
+
+```go
+// errorResponse returns the status and the apix.ErrorResponse to send for err.
+// An error without a 4xx or 5xx status becomes a generic 500, so its text
+// stays out of the response.
+func errorResponse(err error) (int, apix.ErrorResponse) {
+    status, resp := http.StatusInternalServerError, apix.ErrorResponse{Message: http.StatusText(http.StatusInternalServerError)}
+    var httpErr *apix.HTTPError
+    var coder apix.StatusCoder
+    switch {
+    case errors.As(err, &httpErr) && httpErr.Status >= 400 && httpErr.Status <= 599:
+        status, resp = httpErr.Status, apix.ErrorResponse{Code: httpErr.Code, Message: httpErr.Message}
+    case errors.As(err, &coder) && coder.HTTPStatus() >= 400 && coder.HTTPStatus() <= 599:
+        // Request body errors from the default decoders: 400, 413 and 422
+        status, resp.Message = coder.HTTPStatus(), coder.Error()
+    }
+    if resp.Code == "" {
+        // BAD_REQUEST, NOT_FOUND, INTERNAL_SERVER_ERROR, ...
+        resp.Code = strings.ToUpper(strings.ReplaceAll(http.StatusText(status), " ", "_"))
+    }
+    return status, resp
+}
+
+// writeError is a chi or mux ErrorHandler that sends err as apix.ErrorResponse.
+func writeError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
+    status, resp := errorResponse(err)
+    if status >= 500 {
+        slog.ErrorContext(ctx, "request failed", "method", r.Method, "path", r.URL.Path, "error", err)
+    }
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(status)
+    if err := json.NewEncoder(w).Encode(resp); err != nil {
+        slog.WarnContext(ctx, "error response write failed", "error", err)
+    }
+}
+
+adapter := chiadapter.New(r, chiadapter.Options{ErrorHandler: writeError})
+```
+
+Echo's `ErrorHandler` returns the error to Echo's `HTTPErrorHandler`, which writes a message that is not a string as JSON:
+
+```go
+adapter := echoadapter.New(e, echoadapter.Options{
+    ErrorHandler: func(err error) error {
+        status, resp := errorResponse(err)
+        return echo.NewHTTPError(status, resp).SetInternal(err)
+    },
+})
+```
+
+Gin's and Fiber's `ErrorHandler`s take the framework's context, `func(context.Context, *gin.Context, error)` and `func(context.Context, fiber.Ctx, error) error`, and write the body with `c.JSON(status, resp)` and `c.Status(status).JSON(resp)`. Errors that do not come from a handler or its request body, such as a 401 from authentication middleware or the router's 404 for an unknown path, do not pass through `ErrorHandler`.
 
