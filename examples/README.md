@@ -254,16 +254,10 @@ Modify:
 
 ### Step 4: Generate OpenAPI Spec
 
-```bash
-# Runtime serving
-# Already included in examples
+The examples serve the spec at runtime. To write a static file, use a small program that registers your routes (see [Programmatic Generation](../docs/OPENAPI_GENERATION.md#programmatic-generation)):
 
-# Or generate static file
-apix generate \
-  --title "Your API" \
-  --version "1.0.0" \
-  --servers "https://api.yourcompany.com" \
-  --out docs/openapi.yaml
+```bash
+go run ./cmd/openapi > docs/openapi.yaml
 ```
 
 ## Project Structure

@@ -651,6 +651,8 @@ handler.RegisterHTTP(mux)
 
 ## CLI Commands
 
+The CLI cannot generate your API's document yet: it finds no routes (see the status note in [CLI_USAGE.md](CLI_USAGE.md)).
+
 ### apix generate
 
 Generate OpenAPI spec from registered routes.

@@ -209,7 +209,7 @@ Replace `swag init` with that program in your CI/CD pipelines:
 
 # AFTER (Apix): ./cmd/openapi is your program that prints the document
 - name: Generate OpenAPI spec
-  run: go run ./cmd/openapi > docs/openapi.json
+  run: go run ./cmd/openapi > docs/openapi.yaml
 ```
 
 ---
@@ -733,11 +733,11 @@ apix.SetLogger(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Leve
 ```yaml
 # .github/workflows/ci.yml; ./cmd/openapi is your program that prints the document
 - name: Generate OpenAPI spec
-  run: go run ./cmd/openapi > docs/openapi.json
+  run: go run ./cmd/openapi > docs/openapi.yaml
 
 - name: Check for spec drift
   run: |
-    if ! git diff --exit-code docs/openapi.json; then
+    if ! git diff --exit-code docs/openapi.yaml; then
       echo "OpenAPI spec has drifted from code!"
       exit 1
     fi

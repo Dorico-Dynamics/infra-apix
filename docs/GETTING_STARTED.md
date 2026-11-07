@@ -53,12 +53,6 @@ go get github.com/gin-gonic/gin
 go get github.com/gofiber/fiber/v3
 ```
 
-### Install CLI Tool (Optional)
-
-```bash
-go install github.com/Infra-Forge/infra-apix/cmd/apix@latest
-```
-
 ## Quick Start
 
 Let's build a simple user management API with Echo.
@@ -402,21 +396,15 @@ handler, err := runtime.NewHandler(runtime.Config{
 
 ## Generating Static Specs
 
-### Using CLI
+### From a Program
+
+Write the document to a file with a small program that registers your routes and prints the document (see [Programmatic Generation](OPENAPI_GENERATION.md#programmatic-generation)), then run it:
 
 ```bash
-# Generate YAML spec
-apix generate \
-  --title "My API" \
-  --version "1.0.0" \
-  --servers "https://api.example.com" \
-  --out docs/openapi.yaml
-
-# Generate JSON spec
-apix generate \
-  --format json \
-  --out docs/openapi.json
+go run ./cmd/openapi > docs/openapi.yaml
 ```
+
+The `apix` CLI cannot do this yet: it reads the routes registered in its own process, so it finds none (see [CLI_USAGE.md](CLI_USAGE.md)).
 
 ### CI Integration
 
@@ -443,8 +431,8 @@ jobs:
       
       - name: Check OpenAPI spec drift
         run: |
-          go install github.com/Infra-Forge/infra-apix/cmd/apix@latest
-          apix spec-guard --existing docs/openapi.yaml
+          go run ./cmd/openapi > docs/openapi.yaml
+          git diff --exit-code docs/openapi.yaml
 ```
 
 ## Next Steps
