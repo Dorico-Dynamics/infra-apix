@@ -143,7 +143,7 @@ Replace each handler with a typed handler, and register it through an adapter. E
 | `@Failure 404 {object} ErrorResponse` | `apix.WithNotFoundError`, and the other error options |
 | `@Security BearerAuth` | `apix.WithSecurity("BearerAuth")` |
 | `@Deprecated` | `apix.WithDeprecated()` |
-| `@Router /users/{id} [get]` | `echoadapter.Get(adapter, "/users/:id", GetUser)` |
+| `@Router /users/{id} [get]` | `echoadapter.Get(adapter, "/users/:id", GetUser)`, with the `@Param` option for `id` |
 
 ```go
 // AFTER (Apix)
@@ -180,7 +180,7 @@ echoadapter.Get(adapter, "/users/:id", GetUser,
 )
 ```
 
-apix passes a handler the request context and the decoded body; it does not bind path or query values. `pathParam` reads the `id` that a middleware copies into the request context (see [Reading Path and Query Parameters](docs/FRAMEWORK_GUIDES.md#reading-path-and-query-parameters)).
+apix passes a handler the request context and the decoded body; it does not bind path or query values. Nor does it read path parameters from the route: without the `WithParameter` for `id`, the document is not valid OpenAPI. `pathParam` reads the `id` that a middleware copies into the request context (see [Reading Path and Query Parameters](docs/FRAMEWORK_GUIDES.md#reading-path-and-query-parameters)).
 
 ### Step 5: Serve the OpenAPI Document
 
@@ -313,6 +313,7 @@ func GetUser(ctx context.Context, _ *apix.NoBody) (UserResponse, error) {
 // Register with standard error responses
 echoadapter.Get(adapter, "/users/:id", GetUser,
     apix.WithSummary("Get user"),
+    apix.WithParameter(apix.Parameter{Name: "id", In: "path", SchemaType: "integer", Required: true}),
     apix.WithStandardErrors(),                // Adds 400, 422, 500
     apix.WithNotFoundError("User not found"), // Adds 404
 )
@@ -486,6 +487,7 @@ e.HTTPErrorHandler = echoadapter.ProblemDetailsErrorHandler(e.HTTPErrorHandler)
 
 echoadapter.Get(adapter, "/users/:id", GetUser,
     apix.WithSummary("Get user"),
+    apix.WithParameter(apix.Parameter{Name: "id", In: "path", SchemaType: "integer", Required: true}),
 )
 ```
 
@@ -599,6 +601,7 @@ if err != nil {
 docs.RegisterEcho(e)
 
 echoadapter.Get(adapter, "/users/:id", GetUser,
+    apix.WithParameter(apix.Parameter{Name: "id", In: "path", SchemaType: "integer", Required: true}),
     apix.WithSecurity("BearerAuth"),
 )
 ```
@@ -676,7 +679,9 @@ e.Use(middleware.Logger())
 e.Use(middleware.Recover())
 
 // Apix handlers work normally
-echoadapter.Get(adapter, "/users/:id", GetUser)
+echoadapter.Get(adapter, "/users/:id", GetUser,
+    apix.WithParameter(apix.Parameter{Name: "id", In: "path", SchemaType: "integer", Required: true}),
+)
 ```
 
 ---
@@ -698,6 +703,7 @@ type User struct {
 ```go
 // Instead of manually adding each error response
 echoadapter.Get(adapter, "/users/:id", GetUser,
+    apix.WithParameter(apix.Parameter{Name: "id", In: "path", SchemaType: "integer", Required: true}),
     apix.WithStandardErrors(), // Adds 400, 422, 500
 )
 ```

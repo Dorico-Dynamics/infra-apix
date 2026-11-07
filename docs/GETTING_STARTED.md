@@ -323,6 +323,12 @@ func main() {
         apix.WithTags("Users"),
         apix.WithNotFoundError("User not found"),
         apix.WithStandardErrors(),
+        apix.WithParameter(apix.Parameter{
+            Name:       "id",
+            In:         "path",
+            SchemaType: "string",
+            Required:   true,
+        }),
     )
     
     // DELETE
@@ -330,6 +336,12 @@ func main() {
         apix.WithSummary("Delete user"),
         apix.WithTags("Users"),
         apix.WithNotFoundError("User not found"),
+        apix.WithParameter(apix.Parameter{
+            Name:       "id",
+            In:         "path",
+            SchemaType: "string",
+            Required:   true,
+        }),
     )
     
     // ... rest of setup

@@ -100,7 +100,7 @@ func main() {
 
 ### Path Parameters
 
-Echo uses `:param` syntax for path parameters:
+Echo uses `:param` syntax for path parameters. apix does not read them from the route, so declare each one with `WithParameter`:
 
 ```go
 echoadapter.Get(adapter, "/api/users/:id", getUser,
@@ -208,7 +208,7 @@ func main() {
 
 ### Path Parameters
 
-Chi uses `{param}` syntax for path parameters:
+Chi uses `{param}` syntax for path parameters. apix does not read them from the route, so declare each one with `WithParameter`:
 
 ```go
 chiadapter.Get(adapter, "/api/users/{id}", getUser,
@@ -297,11 +297,17 @@ func main() {
 
 ### Path Parameters
 
-Mux uses `{param}` syntax for path parameters:
+Mux uses `{param}` syntax for path parameters. apix does not read them from the route, so declare each one with `WithParameter`:
 
 ```go
 muxadapter.Get(adapter, "/api/users/{id}", getUser,
     apix.WithSummary("Get user by ID"),
+    apix.WithParameter(apix.Parameter{
+        Name:       "id",
+        In:         "path",
+        SchemaType: "string",
+        Required:   true,
+    }),
 )
 ```
 
@@ -373,11 +379,17 @@ func main() {
 
 ### Path Parameters
 
-Gin uses `:param` syntax for path parameters:
+Gin uses `:param` syntax for path parameters. apix does not read them from the route, so declare each one with `WithParameter`:
 
 ```go
 ginadapter.Get(adapter, "/api/users/:id", getUser,
     apix.WithSummary("Get user by ID"),
+    apix.WithParameter(apix.Parameter{
+        Name:       "id",
+        In:         "path",
+        SchemaType: "string",
+        Required:   true,
+    }),
 )
 ```
 
@@ -448,11 +460,17 @@ func main() {
 
 ### Path Parameters
 
-Fiber uses `:param` syntax for path parameters:
+Fiber uses `:param` syntax for path parameters. apix does not read them from the route, so declare each one with `WithParameter`:
 
 ```go
 fiberadapter.Get(adapter, "/api/users/:id", getUser,
     apix.WithSummary("Get user by ID"),
+    apix.WithParameter(apix.Parameter{
+        Name:       "id",
+        In:         "path",
+        SchemaType: "string",
+        Required:   true,
+    }),
 )
 ```
 
@@ -555,7 +573,14 @@ app.Get("/api/users/:id", func(c fiber.Ctx) error {
     c.SetContext(ctx)
     return c.Next()
 })
-fiberadapter.Get(adapter, "/api/users/:id", getUser)
+fiberadapter.Get(adapter, "/api/users/:id", getUser,
+    apix.WithParameter(apix.Parameter{
+        Name:       "id",
+        In:         "path",
+        SchemaType: "string",
+        Required:   true,
+    }),
+)
 ```
 
 ---

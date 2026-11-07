@@ -256,8 +256,17 @@ Adds a query, path, or header parameter.
 func WithParameter(param Parameter) RouteOption
 ```
 
+apix does not read path parameters from the route: declare each one, with `In: "path"` and `Required: true`. A document that leaves one out, or does not mark it required, is not valid OpenAPI, and `runtime.Config{Validate: true}` answers the spec endpoint with a 500.
+
 **Example:**
 ```go
+apix.WithParameter(apix.Parameter{
+    Name:        "id",
+    In:          "path",
+    Description: "User ID",
+    SchemaType:  "string",
+    Required:    true,
+})
 apix.WithParameter(apix.Parameter{
     Name:        "page",
     In:          "query",
@@ -415,6 +424,8 @@ echoadapter.Post(adapter, "/api/users", createUser,
 - `Patch[TReq, TResp](adapter, path, handler, opts...)`
 - `Delete[TResp](adapter, path, handler, opts...)`
 
+**Path Parameters:** Use `:id` syntax (Echo standard), and declare each parameter with [`WithParameter`](#withparameter)
+
 ### Chi Adapter
 
 **Package:** `github.com/Infra-Forge/infra-apix/chi`
@@ -433,7 +444,7 @@ chiadapter.Post(adapter, "/api/users", createUser,
 )
 ```
 
-**Path Parameters:** Use `{id}` syntax (Chi standard)
+**Path Parameters:** Use `{id}` syntax (Chi standard), and declare each parameter with [`WithParameter`](#withparameter)
 
 ### Gorilla/Mux Adapter
 
@@ -453,7 +464,7 @@ muxadapter.Post(adapter, "/api/users", createUser,
 )
 ```
 
-**Path Parameters:** Use `{id}` syntax (Mux standard)
+**Path Parameters:** Use `{id}` syntax (Mux standard), and declare each parameter with [`WithParameter`](#withparameter)
 
 ### Gin Adapter
 
@@ -473,7 +484,7 @@ ginadapter.Post(adapter, "/api/users", createUser,
 )
 ```
 
-**Path Parameters:** Use `:id` syntax (Gin standard)
+**Path Parameters:** Use `:id` syntax (Gin standard), and declare each parameter with [`WithParameter`](#withparameter)
 
 ### Fiber Adapter
 
@@ -493,7 +504,7 @@ fiberadapter.Post(adapter, "/api/users", createUser,
 )
 ```
 
-**Path Parameters:** Use `:id` syntax (Fiber standard)
+**Path Parameters:** Use `:id` syntax (Fiber standard), and declare each parameter with [`WithParameter`](#withparameter)
 
 ## OpenAPI Builder
 

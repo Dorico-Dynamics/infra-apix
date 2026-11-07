@@ -528,6 +528,7 @@ echoadapter.Post(adapter, "/api/users", createUser,
 
 // Add 404 error
 echoadapter.Get(adapter, "/api/users/:id", getUser,
+    apix.WithParameter(apix.Parameter{Name: "id", In: "path", SchemaType: "string", Required: true}),
     apix.WithNotFoundError("User not found"),
 )
 
@@ -543,6 +544,7 @@ The handler's return type documents the success response. Error options add the 
 
 ```go
 echoadapter.Get(adapter, "/api/users/:id", getUser,
+    apix.WithParameter(apix.Parameter{Name: "id", In: "path", SchemaType: "string", Required: true}),
     apix.WithNotFoundError("User not found"),
     apix.WithUnauthorizedError("Authentication required"),
 )
@@ -576,6 +578,22 @@ echoadapter.Get(adapter, "/api/v1/users", listUsersV1,
 ```
 
 ### Parameters
+
+apix does not read path parameters from the route: declare each one, with `In: "path"` and `Required: true`. A document that leaves one out, or does not mark it required, is not valid OpenAPI.
+
+```go
+echoadapter.Get(adapter, "/api/users/:id", getUser,
+    apix.WithParameter(apix.Parameter{
+        Name:        "id",
+        In:          "path",
+        Description: "User ID",
+        SchemaType:  "string",
+        Required:    true,
+    }),
+)
+```
+
+Query and header parameters are optional unless `Required` is set:
 
 ```go
 echoadapter.Get(adapter, "/api/users", listUsers,
