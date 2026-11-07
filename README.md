@@ -658,8 +658,11 @@ the remaining work in three milestones:
   - echo validates with Echo's `Validator`;
   - gin and fiber validate only through a custom `Decoder`.
 
-  A failure is a 422 that carries the validator's message. Validation on
-  by default comes in v2:
+  On chi, gorilla/mux and echo, a validation failure is a 422 that carries
+  the validator's message, unless the validator's error already carries an
+  HTTP status. A custom `Decoder` must return an error that carries a
+  status, for example with `apix.WrapError`; any other error is answered
+  with a generic 500. Validation on by default comes in v2:
   [#34](https://github.com/Dorico-Dynamics/infra-apix/issues/34).
 - **Constraints in the document.** The document takes only `required` from
   `validate` and `binding` tags, and `WithParameter` has no constraint
@@ -683,7 +686,10 @@ the remaining work in three milestones:
   - `{"error": …}` JSON on gin and fiber;
   - Echo's error handler on echo.
 
-  Set `UseProblemDetails` for RFC 9457, or set an `ErrorHandler`:
+  Set `UseProblemDetails` for RFC 9457, or set an `ErrorHandler`. On echo,
+  `UseProblemDetails` also needs
+  `e.HTTPErrorHandler = echoadapter.ProblemDetailsErrorHandler(e.HTTPErrorHandler)`;
+  without it, Echo answers every such error with a 500:
   [#40](https://github.com/Dorico-Dynamics/infra-apix/issues/40).
 - **OpenAPI versions.** The document declares OpenAPI 3.1.0 but marks
   nullable schemas with 3.0's `nullable: true`, and there is no 3.0.3
