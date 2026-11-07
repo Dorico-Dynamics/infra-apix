@@ -135,30 +135,40 @@ func TestGinAdapterAnswersAPayloadItCannotEncodeWith500(t *testing.T) {
 }
 
 // TestGinAdapterSuccessBodyIsUnchanged: marshalling first keeps the bytes and
-// Content-Type of c.JSON.
+// Content-Type of c.JSON, including a Content-Type that middleware set.
 func TestGinAdapterSuccessBodyIsUnchanged(t *testing.T) {
-	apix.ResetRegistry()
-	e := gin.New()
-	adapter := ginadapter.New(e)
-	ginadapter.Post(adapter, "/items", func(ctx context.Context, req *createItemRequest) (createItemResponse, error) {
-		return createItemResponse{ID: "<1>"}, nil
-	})
+	for _, preset := range []string{"", "application/vnd.api+json"} {
+		t.Run("preset "+preset, func(t *testing.T) {
+			apix.ResetRegistry()
+			e := gin.New()
+			if preset != "" {
+				e.Use(func(c *gin.Context) { c.Header("Content-Type", preset) })
+			}
+			adapter := ginadapter.New(e)
+			ginadapter.Post(adapter, "/items", func(ctx context.Context, req *createItemRequest) (createItemResponse, error) {
+				return createItemResponse{ID: "<1>"}, nil
+			})
 
-	resp := httptest.NewRecorder()
-	e.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/items", strings.NewReader(`{"name": "a"}`)))
+			resp := httptest.NewRecorder()
+			e.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/items", strings.NewReader(`{"name": "a"}`)))
 
-	want := httptest.NewRecorder()
-	ref, _ := gin.CreateTestContext(want)
-	ref.JSON(http.StatusCreated, createItemResponse{ID: "<1>"})
+			want := httptest.NewRecorder()
+			ref, _ := gin.CreateTestContext(want)
+			if preset != "" {
+				ref.Header("Content-Type", preset)
+			}
+			ref.JSON(http.StatusCreated, createItemResponse{ID: "<1>"})
 
-	if resp.Code != http.StatusCreated {
-		t.Errorf("status = %d, want 201", resp.Code)
-	}
-	if got, wantCT := resp.Header().Get("Content-Type"), want.Header().Get("Content-Type"); got != wantCT {
-		t.Errorf("Content-Type = %q, want c.JSON's %q", got, wantCT)
-	}
-	if got := resp.Body.String(); got != want.Body.String() {
-		t.Errorf("body = %q, want c.JSON's %q", got, want.Body.String())
+			if resp.Code != http.StatusCreated {
+				t.Errorf("status = %d, want 201", resp.Code)
+			}
+			if got, wantCT := resp.Header().Get("Content-Type"), want.Header().Get("Content-Type"); got != wantCT {
+				t.Errorf("Content-Type = %q, want c.JSON's %q", got, wantCT)
+			}
+			if got := resp.Body.String(); got != want.Body.String() {
+				t.Errorf("body = %q, want c.JSON's %q", got, want.Body.String())
+			}
+		})
 	}
 }
 

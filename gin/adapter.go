@@ -208,7 +208,10 @@ func defaultEncoder(c *gin.Context, status int, payload any) error {
 	if err != nil {
 		return err
 	}
-	c.Header("Content-Type", "application/json; charset=utf-8")
+	// Like c.JSON, keep a Content-Type that middleware set.
+	if len(c.Writer.Header()["Content-Type"]) == 0 {
+		c.Header("Content-Type", "application/json; charset=utf-8")
+	}
 	c.Status(status)
 	if _, err := c.Writer.Write(body); err != nil {
 		errorhandler.LogWriteFailed(c.Request, "response write failed", err)
