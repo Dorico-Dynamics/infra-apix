@@ -126,7 +126,7 @@ type listGrantsOutput struct {
 type createGrantInput struct {
 	IdempotencyKey string `header:"Idempotency-Key" doc:"Makes a retried create safe: the same key and body replay the first response"`
 	Body           struct {
-		Title  string  `json:"title" minLength:"1" maxLength:"200"`
+		Title  string  `json:"title" minLength:"3" maxLength:"200"`
 		Amount float64 `json:"amount" exclusiveMinimum:"0"`
 	}
 }

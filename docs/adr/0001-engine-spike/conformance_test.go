@@ -620,6 +620,12 @@ var rows = []row{
 	{"X3", "unknown JSON field → 400", func(c *check) {
 		c.problem(c.sendJSON(http.MethodPost, "/grants", nil, `{"title": "Water access", "amount": 2500, "owner": "x"}`), codeValidationFailed)
 	}},
+	{"X4", "string shorter or longer than its bounds → 400 naming it as too_short or too_long", func(c *check) {
+		short := c.sendJSON(http.MethodPost, "/grants", nil, `{"title": "ab", "amount": 2500}`)
+		c.field(c.problem(short, codeValidationFailed), "title", fieldTooShort)
+		long := c.sendJSON(http.MethodPost, "/grants", nil, `{"title": "`+strings.Repeat("x", 201)+`", "amount": 2500}`)
+		c.field(c.problem(long, codeValidationFailed), "title", fieldTooLong)
+	}},
 }
 
 // specRows check the generated documents, independent of requests.

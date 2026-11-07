@@ -59,7 +59,7 @@ type apixMetadataRequest struct {
 }
 
 type apixGrantRequest struct {
-	Title  string  `json:"title" validate:"required,min=1,max=200"`
+	Title  string  `json:"title" validate:"required,min=3,max=200"`
 	Amount float64 `json:"amount" validate:"required,gt=0"`
 }
 
