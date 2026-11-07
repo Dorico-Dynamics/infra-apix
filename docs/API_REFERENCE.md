@@ -5,13 +5,14 @@ Complete API documentation for the `apix` library.
 ## Table of Contents
 
 - [Core Types](#core-types)
-- [Handler Signature](#handler-signature)
 - [Route Options](#route-options)
 - [Framework Adapters](#framework-adapters)
 - [OpenAPI Builder](#openapi-builder)
 - [Runtime Server](#runtime-server)
 - [CLI Commands](#cli-commands)
+- [Registry Functions](#registry-functions)
 - [Logging](#logging)
+- [Error Types](#error-types)
 
 ## Core Types
 
