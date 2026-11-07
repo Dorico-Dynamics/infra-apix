@@ -8,17 +8,16 @@ import (
 	"time"
 
 	apix "github.com/Infra-Forge/infra-apix"
-	echoadapter "github.com/Infra-Forge/infra-apix/echo"
+	muxadapter "github.com/Infra-Forge/infra-apix/mux"
 	"github.com/Infra-Forge/infra-apix/openapi"
 	"github.com/Infra-Forge/infra-apix/runtime"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/gorilla/mux"
 	"github.com/shopspring/decimal"
 )
 
-// Domain Models (matching infranotes-module structure)
+// Domain Models
 
 type DocumentModel struct {
 	ID            uuid.UUID  `json:"id"`
@@ -283,17 +282,14 @@ func main() {
 	// Reset registry for clean state
 	apix.ResetRegistry()
 
-	// Create Echo instance
-	e := echo.New()
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
-	e.Use(middleware.CORS())
+	// Create Mux router
+	r := mux.NewRouter()
 
 	// Create apix adapter
-	adapter := echoadapter.New(e)
+	adapter := muxadapter.New(r)
 
 	// Register Document routes
-	echoadapter.Post(adapter, "/api/documents", createDocument,
+	muxadapter.Post(adapter, "/api/documents", createDocument,
 		apix.WithSummary("Upload financial document"),
 		apix.WithDescription("Upload a new financial document for processing (bank statement, invoice, receipt)"),
 		apix.WithTags("Documents"),
@@ -301,7 +297,7 @@ func main() {
 		apix.WithNotFoundError("Document not found"),
 	)
 
-	echoadapter.Get(adapter, "/api/documents/:id", getDocument,
+	muxadapter.Get(adapter, "/api/documents/{id}", getDocument,
 		apix.WithSummary("Get document by ID"),
 		apix.WithDescription("Retrieve a specific financial document by its ID"),
 		apix.WithTags("Documents"),
@@ -315,7 +311,7 @@ func main() {
 		apix.WithNotFoundError("Document not found"),
 	)
 
-	echoadapter.Get(adapter, "/api/documents", listDocuments,
+	muxadapter.Get(adapter, "/api/documents", listDocuments,
 		apix.WithSummary("List all documents"),
 		apix.WithDescription("Retrieve a paginated list of all financial documents"),
 		apix.WithTags("Documents"),
@@ -324,7 +320,7 @@ func main() {
 	)
 
 	// Register Transaction routes
-	echoadapter.Post(adapter, "/api/transactions", createTransaction,
+	muxadapter.Post(adapter, "/api/transactions", createTransaction,
 		apix.WithSummary("Create transaction"),
 		apix.WithDescription("Create a new financial transaction"),
 		apix.WithTags("Transactions"),
@@ -332,7 +328,7 @@ func main() {
 		apix.WithStandardErrors(),
 	)
 
-	echoadapter.Get(adapter, "/api/transactions", listTransactions,
+	muxadapter.Get(adapter, "/api/transactions", listTransactions,
 		apix.WithSummary("List transactions"),
 		apix.WithDescription("Retrieve a paginated list of financial transactions"),
 		apix.WithTags("Transactions"),
@@ -345,7 +341,7 @@ func main() {
 	)
 
 	// Register Category routes (full CRUD)
-	echoadapter.Post(adapter, "/api/categories", createCategory,
+	muxadapter.Post(adapter, "/api/categories", createCategory,
 		apix.WithSummary("Create category"),
 		apix.WithDescription("Create a new transaction category"),
 		apix.WithTags("Categories"),
@@ -354,7 +350,7 @@ func main() {
 		apix.WithConflictError("Category with this name already exists"),
 	)
 
-	echoadapter.Put(adapter, "/api/categories/:id", updateCategory,
+	muxadapter.Put(adapter, "/api/categories/{id}", updateCategory,
 		apix.WithSummary("Update category"),
 		apix.WithDescription("Update an existing transaction category"),
 		apix.WithTags("Categories"),
@@ -364,7 +360,7 @@ func main() {
 		apix.WithNotFoundError("Category not found"),
 	)
 
-	echoadapter.Delete(adapter, "/api/categories/:id", deleteCategory,
+	muxadapter.Delete(adapter, "/api/categories/{id}", deleteCategory,
 		apix.WithSummary("Delete category"),
 		apix.WithDescription("Delete a transaction category"),
 		apix.WithTags("Categories"),
@@ -376,10 +372,10 @@ func main() {
 
 	// Create runtime handler for OpenAPI spec
 	handler, err := runtime.NewHandler(runtime.Config{
-		Title:           "InfraNotes Financial Analytics API",
+		Title:           "Dorico Dynamics Financial Analytics API",
 		Version:         "1.0.0",
 		Format:          "json",
-		Servers:         []string{"https://api.infranotes.com", "http://localhost:8080"},
+		Servers:         []string{"http://localhost:8080"},
 		EnableSwaggerUI: true,
 		// Every scheme the routes name with apix.WithSecurity must be declared
 		SecuritySchemes: openapi3.SecuritySchemes{
@@ -393,9 +389,8 @@ func main() {
 
 			// Add contact info
 			b.Info.Contact = &openapi3.Contact{
-				Name:  "InfraNotes Support",
-				Email: "support@infranotes.com",
-				URL:   "https://infranotes.com/support",
+				Name: "Dorico Dynamics LDA",
+				URL:  "https://doricod.co.mz",
 			}
 
 			// Add license
@@ -409,25 +404,27 @@ func main() {
 		log.Fatalf("Failed to create runtime handler: %v", err)
 	}
 
-	// Register OpenAPI endpoints
-	handler.RegisterEcho(e)
+	// Register OpenAPI endpoints with Mux
+	mux := http.NewServeMux()
+	handler.RegisterHTTP(mux)
+	r.PathPrefix("/openapi.json").Handler(mux)
+	r.PathPrefix("/swagger").Handler(mux)
 
 	// Health check endpoint
-	e.GET("/health", func(c echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]string{
-			"status":  "healthy",
-			"version": "1.0.0",
-		})
+	r.HandleFunc("/health", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"healthy","version":"1.0.0"}`)
 	})
 
 	// Start server
-	port := 8080
-	log.Printf("Starting InfraNotes example server on port %d", port)
+	port := 8084
+	log.Printf("Starting Dorico Dynamics Mux example server on port %d", port)
 	log.Printf("OpenAPI spec available at: http://localhost:%d/openapi.json", port)
 	log.Printf("Swagger UI available at: http://localhost:%d/swagger", port)
 	log.Printf("Health check available at: http://localhost:%d/health", port)
 
-	if err := e.Start(fmt.Sprintf(":%d", port)); err != nil && err != http.ErrServerClosed {
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), r); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}
 }

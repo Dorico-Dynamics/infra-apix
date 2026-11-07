@@ -8,16 +8,17 @@ import (
 	"time"
 
 	apix "github.com/Infra-Forge/infra-apix"
-	muxadapter "github.com/Infra-Forge/infra-apix/mux"
+	chiadapter "github.com/Infra-Forge/infra-apix/chi"
 	"github.com/Infra-Forge/infra-apix/openapi"
 	"github.com/Infra-Forge/infra-apix/runtime"
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"github.com/shopspring/decimal"
 )
 
-// Domain Models (matching infranotes-module structure)
+// Domain Models
 
 type DocumentModel struct {
 	ID            uuid.UUID  `json:"id"`
@@ -282,14 +283,16 @@ func main() {
 	// Reset registry for clean state
 	apix.ResetRegistry()
 
-	// Create Mux router
-	r := mux.NewRouter()
+	// Create Chi router
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
 
 	// Create apix adapter
-	adapter := muxadapter.New(r)
+	adapter := chiadapter.New(r)
 
 	// Register Document routes
-	muxadapter.Post(adapter, "/api/documents", createDocument,
+	chiadapter.Post(adapter, "/api/documents", createDocument,
 		apix.WithSummary("Upload financial document"),
 		apix.WithDescription("Upload a new financial document for processing (bank statement, invoice, receipt)"),
 		apix.WithTags("Documents"),
@@ -297,7 +300,7 @@ func main() {
 		apix.WithNotFoundError("Document not found"),
 	)
 
-	muxadapter.Get(adapter, "/api/documents/{id}", getDocument,
+	chiadapter.Get(adapter, "/api/documents/{id}", getDocument,
 		apix.WithSummary("Get document by ID"),
 		apix.WithDescription("Retrieve a specific financial document by its ID"),
 		apix.WithTags("Documents"),
@@ -311,7 +314,7 @@ func main() {
 		apix.WithNotFoundError("Document not found"),
 	)
 
-	muxadapter.Get(adapter, "/api/documents", listDocuments,
+	chiadapter.Get(adapter, "/api/documents", listDocuments,
 		apix.WithSummary("List all documents"),
 		apix.WithDescription("Retrieve a paginated list of all financial documents"),
 		apix.WithTags("Documents"),
@@ -320,7 +323,7 @@ func main() {
 	)
 
 	// Register Transaction routes
-	muxadapter.Post(adapter, "/api/transactions", createTransaction,
+	chiadapter.Post(adapter, "/api/transactions", createTransaction,
 		apix.WithSummary("Create transaction"),
 		apix.WithDescription("Create a new financial transaction"),
 		apix.WithTags("Transactions"),
@@ -328,7 +331,7 @@ func main() {
 		apix.WithStandardErrors(),
 	)
 
-	muxadapter.Get(adapter, "/api/transactions", listTransactions,
+	chiadapter.Get(adapter, "/api/transactions", listTransactions,
 		apix.WithSummary("List transactions"),
 		apix.WithDescription("Retrieve a paginated list of financial transactions"),
 		apix.WithTags("Transactions"),
@@ -341,7 +344,7 @@ func main() {
 	)
 
 	// Register Category routes (full CRUD)
-	muxadapter.Post(adapter, "/api/categories", createCategory,
+	chiadapter.Post(adapter, "/api/categories", createCategory,
 		apix.WithSummary("Create category"),
 		apix.WithDescription("Create a new transaction category"),
 		apix.WithTags("Categories"),
@@ -350,7 +353,7 @@ func main() {
 		apix.WithConflictError("Category with this name already exists"),
 	)
 
-	muxadapter.Put(adapter, "/api/categories/{id}", updateCategory,
+	chiadapter.Put(adapter, "/api/categories/{id}", updateCategory,
 		apix.WithSummary("Update category"),
 		apix.WithDescription("Update an existing transaction category"),
 		apix.WithTags("Categories"),
@@ -360,7 +363,7 @@ func main() {
 		apix.WithNotFoundError("Category not found"),
 	)
 
-	muxadapter.Delete(adapter, "/api/categories/{id}", deleteCategory,
+	chiadapter.Delete(adapter, "/api/categories/{id}", deleteCategory,
 		apix.WithSummary("Delete category"),
 		apix.WithDescription("Delete a transaction category"),
 		apix.WithTags("Categories"),
@@ -372,10 +375,10 @@ func main() {
 
 	// Create runtime handler for OpenAPI spec
 	handler, err := runtime.NewHandler(runtime.Config{
-		Title:           "InfraNotes Financial Analytics API",
+		Title:           "Dorico Dynamics Financial Analytics API",
 		Version:         "1.0.0",
 		Format:          "json",
-		Servers:         []string{"https://api.infranotes.com", "http://localhost:8080"},
+		Servers:         []string{"http://localhost:8080"},
 		EnableSwaggerUI: true,
 		// Every scheme the routes name with apix.WithSecurity must be declared
 		SecuritySchemes: openapi3.SecuritySchemes{
@@ -389,9 +392,8 @@ func main() {
 
 			// Add contact info
 			b.Info.Contact = &openapi3.Contact{
-				Name:  "InfraNotes Support",
-				Email: "support@infranotes.com",
-				URL:   "https://infranotes.com/support",
+				Name: "Dorico Dynamics LDA",
+				URL:  "https://doricod.co.mz",
 			}
 
 			// Add license
@@ -405,22 +407,21 @@ func main() {
 		log.Fatalf("Failed to create runtime handler: %v", err)
 	}
 
-	// Register OpenAPI endpoints with Mux
+	// Register OpenAPI endpoints with Chi
 	mux := http.NewServeMux()
 	handler.RegisterHTTP(mux)
-	r.PathPrefix("/openapi.json").Handler(mux)
-	r.PathPrefix("/swagger").Handler(mux)
+	r.Mount("/", mux)
 
 	// Health check endpoint
-	r.HandleFunc("/health", func(w http.ResponseWriter, req *http.Request) {
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, `{"status":"healthy","version":"1.0.0"}`)
 	})
 
 	// Start server
-	port := 8084
-	log.Printf("Starting InfraNotes Mux example server on port %d", port)
+	port := 8081
+	log.Printf("Starting Dorico Dynamics Chi example server on port %d", port)
 	log.Printf("OpenAPI spec available at: http://localhost:%d/openapi.json", port)
 	log.Printf("Swagger UI available at: http://localhost:%d/swagger", port)
 	log.Printf("Health check available at: http://localhost:%d/health", port)

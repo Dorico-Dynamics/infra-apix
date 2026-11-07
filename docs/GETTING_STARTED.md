@@ -505,7 +505,7 @@ jobs:
 Check out the complete examples in the `examples/` directory:
 
 ```bash
-cd examples/infranotes
+cd examples/dorico-dynamics
 go run main.go
 ```
 

@@ -614,10 +614,10 @@ apix.SetLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
 Complete working examples for all frameworks:
 
-- **[Echo Example](examples/infranotes/)** - Full-featured financial API
-- **[Chi Example](examples/infranotes-chi/)** - Chi router implementation
-- **[Gin Example](examples/infranotes-gin/)** - Gin framework implementation
-- **[Mux Example](examples/infranotes-mux/)** - Gorilla/Mux implementation
+- **[Echo Example](examples/dorico-dynamics/)** - Full-featured financial API
+- **[Chi Example](examples/dorico-dynamics-chi/)** - Chi router implementation
+- **[Gin Example](examples/dorico-dynamics-gin/)** - Gin framework implementation
+- **[Mux Example](examples/dorico-dynamics-mux/)** - Gorilla/Mux implementation
 
 Each example demonstrates:
 - CRUD operations
