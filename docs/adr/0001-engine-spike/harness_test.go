@@ -181,6 +181,8 @@ func (b *scoreboard) record(row, engineName string, r result) {
 	b.rows[row][engineName] = r
 }
 
+var cellEscaper = strings.NewReplacer("|", "/", "\n", " ")
+
 // summary renders the scoreboard as a Markdown table, rows sorted by id.
 func (b *scoreboard) summary(engines []string) string {
 	b.mu.Lock()
@@ -219,7 +221,8 @@ func (b *scoreboard) summary(engines []string) string {
 				if r.doc != "" {
 					why = append(why, "document: "+r.doc)
 				}
-				sb.WriteString(" FAIL: " + strings.ReplaceAll(strings.Join(why, "; "), "|", "/") + " |")
+				// A cell is one line, and a pipe would end it early.
+				sb.WriteString(" FAIL: " + cellEscaper.Replace(strings.Join(why, "; ")) + " |")
 			}
 		}
 		sb.WriteString("\n")
