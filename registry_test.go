@@ -109,9 +109,9 @@ func TestEnsureResponse(t *testing.T) {
 }
 
 // TestDefaultOperationIDIsTheSameForEveryRouterSyntax: Echo, Gin and Fiber
-// write a path parameter as :id, chi and mux as {id}. The builder documents
-// both as {id}, so both give the operation the same ID. A colon inside a
-// segment, as in a custom method, is kept.
+// write a path parameter as :id, chi and mux as {id} or, with a pattern,
+// {id:[0-9]+}. The builder documents each as {id}, so each gives the operation
+// the same ID. A colon inside a segment, as in a custom method, is kept.
 func TestDefaultOperationIDIsTheSameForEveryRouterSyntax(t *testing.T) {
 	cases := []struct {
 		method apix.RouteMethod
@@ -122,6 +122,8 @@ func TestDefaultOperationIDIsTheSameForEveryRouterSyntax(t *testing.T) {
 		{apix.MethodGet, "/users/{id}", "get_users_id"},
 		{apix.MethodPut, "/orgs/:org/users/:id", "put_orgs_org_users_id"},
 		{apix.MethodPut, "/orgs/{org}/users/{id}", "put_orgs_org_users_id"},
+		{apix.MethodGet, "/users/{id:[0-9]+}", "get_users_id"},
+		{apix.MethodGet, "/files/{rest:[a-z/]+}", "get_files_rest"},
 		{apix.MethodPost, "/movements:receipt", "post_movements:receipt"},
 		{apix.MethodPost, "/v1/items", "post_v1_items"},
 		{apix.MethodGet, "/", "get_root"},

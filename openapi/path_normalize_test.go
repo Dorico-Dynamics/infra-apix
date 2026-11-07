@@ -12,6 +12,8 @@ func TestNormalizePath(t *testing.T) {
 		{"/api/users/{id}", "/api/users/{id}"},
 		{"/api/posts/:postId/comments/:commentId", "/api/posts/{postId}/comments/{commentId}"},
 		{"/api/files/*filepath", "/api/files/*filepath"}, // wildcard - keep as is for now
+		{"/api/users/{id:[0-9]+}", "/api/users/{id}"},
+		{"/api/users/{id:[0-9]{3}}/posts/{slug:[a-z-]+}", "/api/users/{id}/posts/{slug}"},
 		{"/health", "/health"},
 	}
 

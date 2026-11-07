@@ -11,6 +11,7 @@ import (
 
 	"github.com/Infra-Forge/infra-apix/internal/generation"
 	"github.com/Infra-Forge/infra-apix/internal/logging"
+	"github.com/Infra-Forge/infra-apix/internal/pathtemplate"
 )
 
 // RouteMethod represents an HTTP method for an endpoint.
@@ -363,10 +364,10 @@ func typeOf(v any) reflect.Type {
 
 // defaultOperationID generates a stable ID combining method and path.
 func defaultOperationID(method RouteMethod, path string) string {
-	segments := strings.Split(strings.Trim(path, "/"), "/")
+	segments := strings.Split(strings.Trim(pathtemplate.StripPatterns(path), "/"), "/")
 	for i, segment := range segments {
 		// Echo, Gin and Fiber write a path parameter as :id, chi and mux as
-		// {id}; the builder documents both as {id}.
+		// {id} or {id:pattern}; the builder documents each as {id}.
 		segments[i] = strings.TrimPrefix(segment, ":")
 	}
 	normalized := strings.Join(segments, "_")

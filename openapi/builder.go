@@ -16,6 +16,7 @@ import (
 
 	apix "github.com/Infra-Forge/infra-apix"
 	"github.com/Infra-Forge/infra-apix/internal/logging"
+	"github.com/Infra-Forge/infra-apix/internal/pathtemplate"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
@@ -899,8 +900,10 @@ func isDecimal(t reflect.Type) bool {
 }
 
 // normalizePath converts framework-specific path parameter syntax to OpenAPI format
-// Converts :param (Echo, Gin, Fiber) to {param}, leaves {param} (Chi, Mux) unchanged
+// Converts :param (Echo, Gin, Fiber) and {param:pattern} (Chi, Mux) to {param},
+// leaves {param} (Chi, Mux) unchanged
 func normalizePath(path string) string {
+	path = pathtemplate.StripPatterns(path)
 	var normalized strings.Builder
 	i := 0
 	for i < len(path) {
