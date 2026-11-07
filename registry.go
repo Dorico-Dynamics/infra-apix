@@ -11,6 +11,7 @@ import (
 
 	"github.com/Infra-Forge/infra-apix/internal/generation"
 	"github.com/Infra-Forge/infra-apix/internal/logging"
+	"github.com/Infra-Forge/infra-apix/internal/pathtemplate"
 )
 
 // RouteMethod represents an HTTP method for an endpoint.
@@ -27,7 +28,9 @@ const (
 // HandlerFunc is the canonical typed handler signature. The request pointer may be nil when the route has no body.
 type HandlerFunc[TReq any, TResp any] func(ctx context.Context, req *TReq) (TResp, error)
 
-// NoBody is used for handlers without a request payload.
+// NoBody is the request or response type of a handler without a body. The
+// adapters decode no request into it (the handler receives nil) and write no
+// response body for it, and the OpenAPI document shows no content for it.
 type NoBody struct{}
 
 // RouteRef stores metadata captured at registration time for later OpenAPI generation.
@@ -361,7 +364,13 @@ func typeOf(v any) reflect.Type {
 
 // defaultOperationID generates a stable ID combining method and path.
 func defaultOperationID(method RouteMethod, path string) string {
-	normalized := strings.ReplaceAll(strings.Trim(path, "/"), "/", "_")
+	segments := strings.Split(strings.Trim(pathtemplate.StripPatterns(path), "/"), "/")
+	for i, segment := range segments {
+		// Echo, Gin and Fiber write a path parameter as :id, chi and mux as
+		// {id} or {id:pattern}; the builder documents each as {id}.
+		segments[i] = strings.TrimPrefix(segment, ":")
+	}
+	normalized := strings.Join(segments, "_")
 	normalized = strings.ReplaceAll(normalized, "{", "")
 	normalized = strings.ReplaceAll(normalized, "}", "")
 	if normalized == "" {

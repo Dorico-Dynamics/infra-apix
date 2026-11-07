@@ -107,3 +107,30 @@ func TestEnsureResponse(t *testing.T) {
 		t.Fatalf("expected header applied")
 	}
 }
+
+// TestDefaultOperationIDIsTheSameForEveryRouterSyntax: Echo, Gin and Fiber
+// write a path parameter as :id, chi and mux as {id} or, with a pattern,
+// {id:[0-9]+}. The builder documents each as {id}, so each gives the operation
+// the same ID. A colon inside a segment, as in a custom method, is kept.
+func TestDefaultOperationIDIsTheSameForEveryRouterSyntax(t *testing.T) {
+	cases := []struct {
+		method apix.RouteMethod
+		path   string
+		want   string
+	}{
+		{apix.MethodGet, "/users/:id", "get_users_id"},
+		{apix.MethodGet, "/users/{id}", "get_users_id"},
+		{apix.MethodPut, "/orgs/:org/users/:id", "put_orgs_org_users_id"},
+		{apix.MethodPut, "/orgs/{org}/users/{id}", "put_orgs_org_users_id"},
+		{apix.MethodGet, "/users/{id:[0-9]+}", "get_users_id"},
+		{apix.MethodGet, "/files/{rest:[a-z/]+}", "get_files_rest"},
+		{apix.MethodPost, "/movements:receipt", "post_movements:receipt"},
+		{apix.MethodPost, "/v1/items", "post_v1_items"},
+		{apix.MethodGet, "/", "get_root"},
+	}
+	for _, tc := range cases {
+		if got := apix.DefaultOperationID(tc.method, tc.path); got != tc.want {
+			t.Errorf("DefaultOperationID(%s, %q) = %q, want %q", tc.method, tc.path, got, tc.want)
+		}
+	}
+}
