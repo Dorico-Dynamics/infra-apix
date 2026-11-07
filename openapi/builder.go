@@ -1,9 +1,12 @@
 package openapi
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"net/http"
 	"reflect"
 	"slices"
@@ -13,6 +16,7 @@ import (
 
 	apix "github.com/Infra-Forge/infra-apix"
 	"github.com/Infra-Forge/infra-apix/internal/logging"
+	"github.com/Infra-Forge/infra-apix/internal/pathtemplate"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
@@ -97,6 +101,9 @@ func (b *Builder) Build(routes []*apix.RouteRef) (*openapi3.T, error) {
 	if err := checkSecuritySchemes(doc); err != nil {
 		return nil, err
 	}
+	if err := checkOperationIDs(doc); err != nil {
+		return nil, err
+	}
 
 	// Log spec build completion
 	routeCount := len(routes)
@@ -148,9 +155,11 @@ func (b *Builder) addRoute(doc *openapi3.T, ref *apix.RouteRef) error {
 			if p.SchemaType == "" {
 				schemaType(param.Schema.Value, "string")
 			}
-			if p.Example != nil {
-				param.Example = p.Example
+			example, err := exampleValue(p.Example)
+			if err != nil {
+				return fmt.Errorf("%s %s: parameter %q example: %w", ref.Method, ref.Path, p.Name, err)
 			}
+			param.Example = example
 			op.Parameters = append(op.Parameters, &openapi3.ParameterRef{Value: param})
 		}
 	}
@@ -158,9 +167,9 @@ func (b *Builder) addRoute(doc *openapi3.T, ref *apix.RouteRef) error {
 	if len(ref.Security) > 0 {
 		security := openapi3.NewSecurityRequirements()
 		for _, sec := range ref.Security {
-			req := openapi3.SecurityRequirement{}
-			req[sec.Name] = sec.Scopes
-			security.With(req)
+			// Authenticate writes no scopes as [], which the OpenAPI schema
+			// requires; a nil slice would be encoded as null.
+			security.With(openapi3.NewSecurityRequirement().Authenticate(sec.Name, sec.Scopes...))
 		}
 		op.Security = security
 	}
@@ -184,7 +193,7 @@ func (b *Builder) addRoute(doc *openapi3.T, ref *apix.RouteRef) error {
 
 	for _, status := range statusCodes {
 		respRef := ref.Responses[status]
-		oaResp, err := b.buildResponse(status, respRef)
+		oaResp, err := b.buildResponse(ref, status, respRef)
 		if err != nil {
 			return err
 		}
@@ -232,12 +241,12 @@ func (b *Builder) buildRequestBody(ref *apix.RouteRef) (*openapi3.RequestBodyRef
 		contentType = "application/json"
 	}
 
-	content := openapi3.Content{}
-	media := &openapi3.MediaType{Schema: schemaRef}
-	if ref.RequestExample != nil {
-		media.Example = ref.RequestExample
+	example, err := exampleValue(ref.RequestExample)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: request example: %w", ref.Method, ref.Path, err)
 	}
-	content[contentType] = media
+	content := openapi3.Content{}
+	content[contentType] = &openapi3.MediaType{Schema: schemaRef, Example: example}
 
 	required := ref.BodyRequired
 	if !ref.BodyRequired {
@@ -252,8 +261,14 @@ func (b *Builder) buildRequestBody(ref *apix.RouteRef) (*openapi3.RequestBodyRef
 	}, nil
 }
 
-func (b *Builder) buildResponse(status int, ref *apix.ResponseRef) (*openapi3.Response, error) {
-	schemaRef, err := b.schemaFromTypes(ref.ExplicitModelType, ref.ModelType)
+func (b *Builder) buildResponse(route *apix.RouteRef, status int, ref *apix.ResponseRef) (*openapi3.Response, error) {
+	explicit, inferred := ref.ExplicitModelType, ref.ModelType
+	if status == http.StatusNoContent {
+		// A 204 has no content (RFC 9110, section 15.3.5): every adapter writes
+		// none, whatever the handler returns.
+		explicit, inferred = nil, nil
+	}
+	schemaRef, err := b.schemaFromTypes(explicit, inferred)
 	if err != nil {
 		return nil, err
 	}
@@ -274,11 +289,11 @@ func (b *Builder) buildResponse(status int, ref *apix.ResponseRef) (*openapi3.Re
 		if contentType == "" {
 			contentType = "application/json"
 		}
-		media := &openapi3.MediaType{Schema: schemaRef}
-		if ref.Example != nil {
-			media.Example = ref.Example
+		example, err := exampleValue(ref.Example)
+		if err != nil {
+			return nil, fmt.Errorf("%s %s: response %d example: %w", route.Method, route.Path, status, err)
 		}
-		resp.Content[contentType] = media
+		resp.Content[contentType] = &openapi3.MediaType{Schema: schemaRef, Example: example}
 	}
 
 	for _, hdr := range ref.Headers {
@@ -288,12 +303,76 @@ func (b *Builder) buildResponse(status int, ref *apix.ResponseRef) (*openapi3.Re
 	return resp, nil
 }
 
+// exampleValue returns an example as the JSON value a handler would send.
+// kin-openapi validates an example by walking JSON values, and the YAML encoder
+// writes a struct with its Go field names, so anything but a JSON scalar (a
+// struct, a typed slice or map, a uint, a time.Time) is stored as its JSON
+// form, with integers as int64.
+func exampleValue(example any) (any, error) {
+	switch v := example.(type) {
+	case nil, bool, string, int, int32, int64:
+		return example, nil
+	case float64:
+		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+			return v, nil
+		}
+	}
+	data, err := json.Marshal(example)
+	if err != nil {
+		return nil, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	return plainNumbers(value)
+}
+
+// plainNumbers replaces each json.Number in a decoded JSON value with an int64,
+// or with a float64 when it has a fraction or an exponent. An integer outside
+// int64 is an error: a float64 would round it, and the YAML encoder writes a
+// json.Number as a string.
+func plainNumbers(value any) (any, error) {
+	switch v := value.(type) {
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return i, nil
+		}
+		if !strings.ContainsAny(string(v), ".eE") {
+			return nil, fmt.Errorf("integer %s is outside the int64 range", v)
+		}
+		return v.Float64()
+	case []any:
+		for i, item := range v {
+			number, err := plainNumbers(item)
+			if err != nil {
+				return nil, err
+			}
+			v[i] = number
+		}
+	case map[string]any:
+		for _, key := range slices.Sorted(maps.Keys(v)) {
+			number, err := plainNumbers(v[key])
+			if err != nil {
+				return nil, err
+			}
+			v[key] = number
+		}
+	}
+	return value, nil
+}
+
+// schemaFromTypes returns the schema of explicit, or of inferred when explicit
+// is nil. A nil type and apix.NoBody have none: the adapters read no request
+// body into a NoBody and write no response body for one.
 func (b *Builder) schemaFromTypes(explicit reflect.Type, inferred reflect.Type) (*openapi3.SchemaRef, error) {
 	t := explicit
 	if t == nil {
 		t = inferred
 	}
-	if t == nil {
+	if t == nil || isNoBody(t) {
 		return nil, nil
 	}
 	return b.schemaRefFromType(t)
@@ -330,19 +409,15 @@ func (b *Builder) schemaRefNonNull(t reflect.Type) (*openapi3.SchemaRef, error) 
 	switch t.Kind() {
 	case reflect.Bool:
 		return schemaRef(openapi3.NewBoolSchema()), nil
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32:
+	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Uint8, reflect.Uint16:
 		s := openapi3.NewIntegerSchema()
 		s.Format = "int32"
 		return schemaRef(s), nil
-	case reflect.Int64:
-		s := openapi3.NewIntegerSchema()
-		s.Format = "int64"
-		return schemaRef(s), nil
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
-		s := openapi3.NewIntegerSchema()
-		s.Format = "int32"
-		return schemaRef(s), nil
-	case reflect.Uint64:
+	case reflect.Int, reflect.Int64, reflect.Uint, reflect.Uint32, reflect.Uint64:
+		// int and uint are 64-bit on amd64 and arm64, and uint32 exceeds int32,
+		// so they are int64 on every platform, which keeps the document the
+		// same wherever it is built. A uint64 above MaxInt64 is outside the
+		// documented range, and an example that large fails the build.
 		s := openapi3.NewIntegerSchema()
 		s.Format = "int64"
 		return schemaRef(s), nil
@@ -717,6 +792,38 @@ func checkSecuritySchemes(doc *openapi3.T) error {
 	return errors.Join(errs...)
 }
 
+// checkOperationIDs fails for every operationId that more than one operation
+// of doc uses. OpenAPI requires operationIds to be unique, client generators
+// name methods after them, and kin-openapi's Validate rejects a duplicate. A
+// path parameter and a literal segment of the same name share a default ID, as
+// /users/{id} and /users/id do. Each error names the first two users in path
+// order and counts the others.
+func checkOperationIDs(doc *openapi3.T) error {
+	users := map[string][]string{}
+	for _, path := range doc.Paths.InMatchingOrder() {
+		ops := doc.Paths.Value(path).Operations()
+		for _, method := range slices.Sorted(maps.Keys(ops)) {
+			if id := ops[method].OperationID; id != "" {
+				users[id] = append(users[id], method+" "+path)
+			}
+		}
+	}
+
+	var errs []error
+	for _, id := range slices.Sorted(maps.Keys(users)) {
+		routes := users[id]
+		if len(routes) < 2 {
+			continue
+		}
+		more := ""
+		if n := len(routes) - 2; n > 0 {
+			more = fmt.Sprintf(" (and %d more)", n)
+		}
+		errs = append(errs, fmt.Errorf("operationId %q is used by both %s and %s%s; give one of them its own with apix.WithOperationID", id, routes[0], routes[1], more))
+	}
+	return errors.Join(errs...)
+}
+
 func schemaRef(schema *openapi3.Schema) *openapi3.SchemaRef {
 	return &openapi3.SchemaRef{Value: schema}
 }
@@ -821,6 +928,16 @@ func sanitizeComponentName(name string) string {
 
 var timeType = reflect.TypeOf(time.Time{})
 
+var noBodyType = reflect.TypeOf(apix.NoBody{})
+
+// isNoBody reports whether t is apix.NoBody or a pointer to it.
+func isNoBody(t reflect.Type) bool {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t == noBodyType
+}
+
 func isUUID(t reflect.Type) bool {
 	return t.PkgPath() == "github.com/google/uuid" && t.Name() == "UUID"
 }
@@ -830,8 +947,10 @@ func isDecimal(t reflect.Type) bool {
 }
 
 // normalizePath converts framework-specific path parameter syntax to OpenAPI format
-// Converts :param (Echo, Gin, Fiber) to {param}, leaves {param} (Chi, Mux) unchanged
+// Converts :param (Echo, Gin, Fiber) and {param:pattern} (Chi, Mux) to {param},
+// leaves {param} (Chi, Mux) unchanged
 func normalizePath(path string) string {
+	path = pathtemplate.StripPatterns(path)
 	var normalized strings.Builder
 	i := 0
 	for i < len(path) {
@@ -853,8 +972,9 @@ func normalizePath(path string) string {
 			}
 			normalized.WriteRune('}')
 		} else {
-			// Regular character or already in {param} format
-			normalized.WriteRune(rune(ch))
+			// Regular byte or already in {param} format. A byte, not a rune:
+			// rune(ch) would re-encode each byte of a multi-byte character.
+			normalized.WriteByte(ch)
 			i++
 		}
 	}

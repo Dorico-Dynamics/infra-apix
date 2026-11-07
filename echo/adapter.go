@@ -17,6 +17,9 @@ import (
 type RequestDecoder func(ctx context.Context, c echo.Context, dst any) error
 
 // ResponseEncoder writes the response payload using the provided status code.
+// An error it returns goes to Echo's HTTPErrorHandler. Once the response is
+// committed, no handler can answer it: Echo's default handler returns without
+// a word, and ProblemDetailsErrorHandler logs the error at Error level.
 type ResponseEncoder func(ctx context.Context, c echo.Context, status int, payload any, ref *apix.RouteRef) error
 
 // ErrorTransformer transforms handler errors into Echo-compatible errors.
@@ -196,11 +199,22 @@ func defaultDecoder(ctx context.Context, c echo.Context, dst any) error {
 	return nil
 }
 
+// defaultEncoder sends payload with c.JSON. Echo's default JSON serializer
+// encodes before it writes, so an encoding error leaves the response
+// uncommitted and goes to Echo's HTTPErrorHandler. An error on a committed
+// response is then a failed write, which no handler can answer: it is logged
+// as a library event and not returned. A custom Echo#JSONSerializer that
+// writes as it encodes has its mid-body encoding errors logged the same way.
 func defaultEncoder(ctx context.Context, c echo.Context, status int, payload any) error {
 	if status == http.StatusNoContent || payload == nil || isNoBody(reflect.TypeOf(payload)) {
 		return c.NoContent(status)
 	}
-	return c.JSON(status, payload)
+	err := c.JSON(status, payload)
+	if err != nil && c.Response().Committed {
+		errorhandler.LogWriteFailed(c.Request(), "response write failed", err)
+		return nil
+	}
+	return err
 }
 
 func typeOf[T any]() reflect.Type {
@@ -227,6 +241,10 @@ func isNoBody(t reflect.Type) bool {
 // ProblemDetails errors as application/problem+json.
 // Use this with e.HTTPErrorHandler when UseProblemDetails is enabled.
 //
+// An error that this handler would answer itself, rather than pass to
+// fallback, is only logged at Error level once the response is committed:
+// another status is ignored, and its body would be appended to the first.
+//
 // Example:
 //
 //	e := echo.New()
@@ -236,7 +254,12 @@ func ProblemDetailsErrorHandler(fallback echo.HTTPErrorHandler) echo.HTTPErrorHa
 	return func(err error, c echo.Context) {
 		// Check if this is a ProblemDetails error
 		var problem *apix.ProblemDetails
-		if errors.As(err, &problem) {
+		isProblem := errors.As(err, &problem)
+		if (isProblem || fallback == nil) && c.Response().Committed {
+			errorhandler.LogCommittedFailure(c.Request().Context(), errorhandler.RequestOf(c.Request()), err)
+			return
+		}
+		if isProblem {
 			// A problem without a 4xx or 5xx status is logged and replaced by
 			// a generic 500; WriteHeader panics on a status such as 0.
 			status, sent := errorhandler.Resolve(c.Request().Context(), errorhandler.RequestOf(c.Request()), problem)
