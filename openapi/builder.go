@@ -324,30 +324,41 @@ func exampleValue(example any) (any, error) {
 	if err := decoder.Decode(&value); err != nil {
 		return nil, err
 	}
-	return plainNumbers(value), nil
+	return plainNumbers(value)
 }
 
-// plainNumbers replaces each json.Number in a decoded JSON value with an int64
-// when it is an integer in range, or a float64 otherwise.
-func plainNumbers(value any) any {
+// plainNumbers replaces each json.Number in a decoded JSON value with an int64,
+// or with a float64 when it has a fraction or an exponent. An integer outside
+// int64 is an error: a float64 would round it, and the YAML encoder writes a
+// json.Number as a string.
+func plainNumbers(value any) (any, error) {
 	switch v := value.(type) {
 	case json.Number:
 		if i, err := v.Int64(); err == nil {
-			return i
+			return i, nil
 		}
-		if f, err := v.Float64(); err == nil {
-			return f
+		if !strings.ContainsAny(string(v), ".eE") {
+			return nil, fmt.Errorf("integer %s is outside the int64 range", v)
 		}
+		return v.Float64()
 	case []any:
 		for i, item := range v {
-			v[i] = plainNumbers(item)
+			number, err := plainNumbers(item)
+			if err != nil {
+				return nil, err
+			}
+			v[i] = number
 		}
 	case map[string]any:
-		for key, item := range v {
-			v[key] = plainNumbers(item)
+		for _, key := range slices.Sorted(maps.Keys(v)) {
+			number, err := plainNumbers(v[key])
+			if err != nil {
+				return nil, err
+			}
+			v[key] = number
 		}
 	}
-	return value
+	return value, nil
 }
 
 // schemaFromTypes returns the schema of explicit, or of inferred when explicit
@@ -402,7 +413,8 @@ func (b *Builder) schemaRefNonNull(t reflect.Type) (*openapi3.SchemaRef, error) 
 	case reflect.Int, reflect.Int64, reflect.Uint, reflect.Uint32, reflect.Uint64:
 		// int and uint are 64-bit on amd64 and arm64, and uint32 exceeds int32,
 		// so they are int64 on every platform, which keeps the document the
-		// same wherever it is built.
+		// same wherever it is built. A uint64 above MaxInt64 is outside the
+		// documented range, and an example that large fails the build.
 		s := openapi3.NewIntegerSchema()
 		s.Format = "int64"
 		return schemaRef(s), nil

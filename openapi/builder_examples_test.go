@@ -467,3 +467,32 @@ func TestExampleWithoutAJSONFormFailsTheBuild(t *testing.T) {
 		})
 	}
 }
+
+// TestExampleIntegerOutsideInt64FailsTheBuild: an example integer outside
+// int64, here a uint64, fails the build naming the route: as a float64 it
+// would lose digits, and kept exact the YAML document would write it as a
+// string. MaxInt64 itself is kept exact.
+func TestExampleIntegerOutsideInt64FailsTheBuild(t *testing.T) {
+	ref := &apix.RouteRef{
+		Method:         apix.MethodPost,
+		Path:           "/items",
+		RequestType:    reflect.TypeOf(jsonFormItem{}),
+		RequestExample: map[string]any{"big": uint64(math.MaxInt64) + 2},
+		Responses:      map[int]*apix.ResponseRef{http.StatusCreated: {}},
+	}
+	_, err := openapi.NewBuilder().Build([]*apix.RouteRef{ref})
+	want := "POST /items: request example: integer 9223372036854775809 is outside the int64 range"
+	if err == nil || err.Error() != want {
+		t.Fatalf("Build error = %v, want %q", err, want)
+	}
+
+	ref.RequestExample = map[string]any{"big": uint64(math.MaxInt64)}
+	doc, err := openapi.NewBuilder().Build([]*apix.RouteRef{ref})
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+	got := doc.Paths.Value("/items").Post.RequestBody.Value.Content["application/json"].Example
+	if want := map[string]any{"big": int64(math.MaxInt64)}; !reflect.DeepEqual(got, want) {
+		t.Errorf("request example = %#v, want %#v", got, want)
+	}
+}
