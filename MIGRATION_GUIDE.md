@@ -2,6 +2,8 @@
 
 This guide helps you migrate from [swaggo/swag](https://github.com/swaggo/swag) to **infra-apix**, a code-first OpenAPI 3.1 generator for Go.
 
+The examples use Echo. The other adapters have the same functions; see [FRAMEWORK_GUIDES.md](docs/FRAMEWORK_GUIDES.md).
+
 ---
 
 ## Table of Contents
@@ -44,35 +46,35 @@ This guide helps you migrate from [swaggo/swag](https://github.com/swaggo/swag) 
 |--------|--------|------|
 | **Approach** | Comment-based annotations | Code-first with typed handlers |
 | **Type Safety** | Runtime (comments) | Compile-time (Go types) |
-| **Spec Generation** | `swag init` CLI | `apix generate` CLI or runtime |
+| **Spec Generation** | `swag init` CLI | Built from the registered routes, at runtime (`runtime.NewHandler`) or by a program of yours |
 | **Determinism** | Non-deterministic | Deterministic (sorted, stable) |
 | **Framework Support** | Framework-specific | Framework-agnostic adapters |
 | **Extensibility** | Limited | Plugin system |
 | **Error Handling** | Manual annotations | Built-in StatusCoder interface |
 | **Examples** | Comment-based | Struct tags + programmatic |
-| **Validation** | Manual annotations | Inferred from struct tags |
+| **Validation** | Manual annotations | `required` inferred from struct tags |
 | **Maintenance** | High (comments drift) | Low (code is source of truth) |
 
 ---
 
 ## Feature Comparison
 
-### ✅ Feature Parity
+### Feature Support
 
 | Feature | Swaggo | Apix |
 |---------|--------|------|
-| OpenAPI 3.x | ✅ 3.0 | ✅ 3.1 |
+| Specification | Swagger 2.0 | OpenAPI 3.1 |
 | Request/Response Models | ✅ | ✅ |
-| Path Parameters | ✅ | ✅ |
-| Query Parameters | ✅ | ✅ |
-| Headers | ✅ | ✅ |
-| Examples | ✅ | ✅ |
-| Validation Rules | ✅ | ✅ (from struct tags) |
-| Security Schemes | ✅ | ✅ (via plugins) |
-| Multiple Content Types | ✅ | ✅ |
-| File Uploads | ✅ | ✅ |
-| Swagger UI | ✅ | ✅ |
-| JSON/YAML Output | ✅ | ✅ |
+| Path Parameters | ✅ | ✅ (`apix.WithParameter`) |
+| Query Parameters | ✅ | ✅ (`apix.WithParameter`) |
+| Headers | ✅ | ✅ (`apix.WithParameter`, `apix.WithSuccessHeaders`) |
+| Examples | ✅ | ✅ (`example` tag, `apix.WithRequestExample`) |
+| Validation Rules | ✅ | `required` only, from `validate` or `binding` tags |
+| Security Schemes | ✅ | ✅ (`runtime.Config.SecuritySchemes`, `apix.WithSecurity`) |
+| Request Content Types | ✅ | One per route: JSON, `apix.WithMultipartFormData`, `apix.WithFormURLEncoded` |
+| File Uploads | ✅ | Documented with `apix.WithMultipartFormData`; the adapters decode JSON, so decode the form yourself ([Example 3](#example-3-file-upload)) |
+| Swagger UI | ✅ | ✅ (`runtime.Config.EnableSwaggerUI`) |
+| JSON/YAML Output | ✅ | ✅ (`runtime.Config.Format`) |
 
 ### 🚀 Apix Advantages
 
@@ -93,12 +95,13 @@ This guide helps you migrate from [swaggo/swag](https://github.com/swaggo/swag) 
 go get github.com/Infra-Forge/infra-apix
 ```
 
-### Step 2: Remove Swaggo Dependencies
+### Step 2: Remove Swaggo
+
+Delete the files `swag init` generated (`docs/docs.go`, `docs/swagger.json`, `docs/swagger.yaml`), the blank import of that package, and the Swagger UI route (`e.GET("/swagger/*", echoSwagger.WrapHandler)`). Then remove the modules:
 
 ```bash
-# Remove swaggo
-go get -u github.com/swaggo/swag@none
-go get -u github.com/swaggo/echo-swagger@none  # or gin-swagger, etc.
+go get github.com/swaggo/swag@none
+go get github.com/swaggo/echo-swagger@none  # or gin-swagger, etc.
 
 # Clean up go.mod
 go mod tidy
@@ -126,55 +129,87 @@ func GetUser(c echo.Context) error {
 
 ### Step 4: Convert to Apix Typed Handlers
 
-Replace comment-based handlers with typed handlers using framework adapters:
+Replace each handler with a typed handler, and register it through an adapter. Each annotation becomes part of the handler or a route option:
+
+| Swaggo | Apix |
+|--------|------|
+| `@Summary`, `@Description`, `@Tags` | `apix.WithSummary`, `apix.WithDescription`, `apix.WithTags` |
+| `@ID` | `apix.WithOperationID` |
+| `@Accept json` | JSON is the default; `apix.WithMultipartFormData()`, `apix.WithFormURLEncoded()` |
+| `@Produce json` | The adapter writes the response as JSON |
+| `@Param id path int true "User ID"` | `apix.WithParameter(apix.Parameter{Name: "id", In: "path", SchemaType: "integer", Required: true, Description: "User ID"})` |
+| `@Param user body CreateUserRequest true "User data"` | The handler's request type, `*CreateUserRequest` |
+| `@Success 200 {object} User` | The handler's response type; the status defaults to 201 for POST, 204 for DELETE and 200 otherwise, and `apix.WithSuccessStatus` changes it |
+| `@Failure 404 {object} ErrorResponse` | `apix.WithNotFoundError`, and the other error options |
+| `@Security BearerAuth` | `apix.WithSecurity("BearerAuth")` |
+| `@Deprecated` | `apix.WithDeprecated()` |
+| `@Router /users/{id} [get]` | `echoadapter.Get(adapter, "/users/:id", GetUser)` |
 
 ```go
 // AFTER (Apix)
-type GetUserRequest struct {
-    ID int `path:"id" description:"User ID" example:"123"`
-}
-
-type GetUserResponse struct {
+type UserResponse struct {
     ID    int    `json:"id" example:"123"`
     Name  string `json:"name" example:"John Doe"`
     Email string `json:"email" example:"john@example.com"`
 }
 
-func GetUser(ctx context.Context, req GetUserRequest) (GetUserResponse, error) {
-    // ... implementation
-    return GetUserResponse{ID: req.ID, Name: "John Doe"}, nil
+func GetUser(ctx context.Context, _ *apix.NoBody) (UserResponse, error) {
+    id, err := strconv.Atoi(pathParam(ctx, "id"))
+    if err != nil {
+        return UserResponse{}, apix.BadRequest("id must be an integer")
+    }
+    // ... load the user
+    return UserResponse{ID: id, Name: "John Doe", Email: "john@example.com"}, nil
 }
 
-// Register with Echo adapter
-e.GET("/users/:id", echoadapter.Wrap(GetUser,
+// Register with the Echo adapter
+adapter := echoadapter.New(e)
+echoadapter.Get(adapter, "/users/:id", GetUser,
     apix.WithSummary("Get user by ID"),
     apix.WithDescription("Get user details by ID"),
     apix.WithTags("users"),
-))
+    apix.WithParameter(apix.Parameter{
+        Name:        "id",
+        In:          "path",
+        Description: "User ID",
+        SchemaType:  "integer",
+        Required:    true,
+        Example:     123,
+    }),
+    apix.WithNotFoundError("User not found"),
+)
 ```
 
-### Step 5: Generate OpenAPI Spec
+apix passes a handler the request context and the decoded body; it does not bind path or query values. `pathParam` reads the `id` that a middleware copies into the request context (see [Reading Path and Query Parameters](docs/FRAMEWORK_GUIDES.md#reading-path-and-query-parameters)).
 
-```bash
-# Generate spec (replaces swag init)
-apix generate -o openapi.yaml
+### Step 5: Serve the OpenAPI Document
 
-# Or use runtime endpoint
-# GET /openapi.json
+```go
+docs, err := runtime.NewHandler(runtime.Config{
+    Title:           "Users API",
+    Version:         "1.0.0",
+    EnableSwaggerUI: true,
+})
+if err != nil {
+    log.Fatal(err)
+}
+docs.RegisterEcho(e) // GET /openapi.json, and the Swagger UI at /swagger
 ```
+
+The handler builds the document from the registered routes on the first request. To write it to a file instead, build it in a program that registers your routes (see [Programmatic Generation](docs/OPENAPI_GENERATION.md#programmatic-generation)). The `apix` CLI cannot do this yet: it reads the routes registered in its own process, so it finds none (see [CLI_USAGE.md](docs/CLI_USAGE.md)).
 
 ### Step 6: Update CI/CD
 
-Replace `swag init` with `apix generate` in your CI/CD pipelines:
+Replace `swag init` with that program in your CI/CD pipelines:
 
 ```yaml
 # BEFORE (Swaggo)
 - name: Generate Swagger docs
   run: swag init
 
-# AFTER (Apix)
+# AFTER (Apix): ./cmd/openapi is your program that prints the document
 - name: Generate OpenAPI spec
-  run: apix generate -o openapi.yaml
+  run: go run ./cmd/openapi > docs/openapi.json
 ```
 
 ---
@@ -219,19 +254,21 @@ type CreateUserResponse struct {
     Email string `json:"email" example:"john@example.com"`
 }
 
-func CreateUser(ctx context.Context, req CreateUserRequest) (CreateUserResponse, error) {
+func CreateUser(ctx context.Context, req *CreateUserRequest) (CreateUserResponse, error) {
     // ... implementation
     return CreateUserResponse{ID: 123, Name: req.Name, Email: req.Email}, nil
 }
 
-// Register
-e.POST("/users", echoadapter.Wrap(CreateUser,
+// Register; POST answers 201 Created by default
+echoadapter.Post(adapter, "/users", CreateUser,
     apix.WithSummary("Create user"),
     apix.WithDescription("Create a new user"),
     apix.WithTags("users"),
-    apix.WithSuccessStatus(http.StatusCreated),
-))
+    apix.WithBadRequestError("Invalid request"),
+)
 ```
+
+The adapter decodes the body itself and answers 400 for malformed JSON or an unknown field. When `e.Validator` is set, it also validates the body, and answers 422 when a rule fails.
 
 ### Example 2: Error Handling
 
@@ -256,22 +293,29 @@ func GetUser(c echo.Context) error {
 #### Apix (After)
 
 ```go
-func GetUser(ctx context.Context, req GetUserRequest) (GetUserResponse, error) {
-    user, err := userService.Get(req.ID)
+func GetUser(ctx context.Context, _ *apix.NoBody) (UserResponse, error) {
+    id, err := strconv.Atoi(pathParam(ctx, "id"))
+    if err != nil {
+        return UserResponse{}, apix.BadRequest("id must be an integer")
+    }
+    user, err := userService.Get(ctx, id)
     if err != nil {
         if errors.Is(err, ErrNotFound) {
-            return GetUserResponse{}, apix.NotFound("User not found")
+            return UserResponse{}, apix.NotFound("User not found")
         }
-        return GetUserResponse{}, apix.InternalServerError("Failed to get user")
+        // Log the cause; the client gets only the message
+        slog.ErrorContext(ctx, "load user", "id", id, "error", err)
+        return UserResponse{}, apix.InternalServerError("Failed to get user")
     }
-    return GetUserResponse{ID: user.ID, Name: user.Name}, nil
+    return UserResponse{ID: user.ID, Name: user.Name, Email: user.Email}, nil
 }
 
 // Register with standard error responses
-e.GET("/users/:id", echoadapter.Wrap(GetUser,
+echoadapter.Get(adapter, "/users/:id", GetUser,
     apix.WithSummary("Get user"),
-    apix.WithStandardErrors(), // Adds 400, 401, 403, 404, 500
-))
+    apix.WithStandardErrors(),                // Adds 400, 422, 500
+    apix.WithNotFoundError("User not found"), // Adds 404
+)
 ```
 
 ### Example 3: File Upload
@@ -301,20 +345,46 @@ type UploadFileRequest struct {
 }
 
 type UploadFileResponse struct {
-    URL string `json:"url" example:"https://example.com/files/123.pdf"`
+    Size int `json:"size" example:"1024"`
 }
 
-func UploadFile(ctx context.Context, req UploadFileRequest) (UploadFileResponse, error) {
-    // ... process file
-    return UploadFileResponse{URL: "https://example.com/files/123.pdf"}, nil
+func UploadFile(ctx context.Context, req *UploadFileRequest) (UploadFileResponse, error) {
+    // ... store req.File
+    return UploadFileResponse{Size: len(req.File)}, nil
 }
 
-// Register with multipart/form-data
-e.POST("/upload", echoadapter.Wrap(UploadFile,
+// decodeUpload reads the multipart form; the adapter's default decoder reads JSON.
+func decodeUpload(_ context.Context, c echo.Context, dst any) error {
+    req, ok := dst.(*UploadFileRequest)
+    if !ok {
+        return fmt.Errorf("decodeUpload: unexpected request type %T", dst)
+    }
+    header, err := c.FormFile("file")
+    if err != nil {
+        return apix.BadRequest("the form has no file field")
+    }
+    file, err := header.Open()
+    if err != nil {
+        return fmt.Errorf("open upload: %w", err)
+    }
+    defer file.Close()
+    req.File, err = io.ReadAll(file)
+    if err != nil {
+        return fmt.Errorf("read upload: %w", err)
+    }
+    return nil
+}
+
+// Upload routes use an adapter with that decoder; JSON routes keep the default one
+uploads := echoadapter.New(e, echoadapter.Options{Decoder: decodeUpload})
+echoadapter.Post(uploads, "/upload", UploadFile,
     apix.WithSummary("Upload file"),
     apix.WithMultipartFormData(),
-))
+    apix.WithSuccessStatus(http.StatusOK),
+)
 ```
+
+`io.ReadAll` holds the file in memory, so cap the request body with Echo's `middleware.BodyLimit`.
 
 ### Example 4: Query Parameters
 
@@ -336,28 +406,51 @@ func ListUsers(c echo.Context) error {
 #### Apix (After)
 
 ```go
-type ListUsersRequest struct {
-    Page   int    `query:"page" description:"Page number" example:"1"`
-    Limit  int    `query:"limit" description:"Page size" example:"10"`
-    Search string `query:"search" description:"Search term" example:"john"`
-}
-
 type ListUsersResponse struct {
     Users []User `json:"users"`
     Total int    `json:"total" example:"100"`
 }
 
-func ListUsers(ctx context.Context, req ListUsersRequest) (ListUsersResponse, error) {
-    // ... implementation
-    return ListUsersResponse{Users: users, Total: 100}, nil
+func ListUsers(ctx context.Context, _ *apix.NoBody) (ListUsersResponse, error) {
+    page, err := intQuery(ctx, "page", 1)
+    if err != nil {
+        return ListUsersResponse{}, err
+    }
+    limit, err := intQuery(ctx, "limit", 10)
+    if err != nil {
+        return ListUsersResponse{}, err
+    }
+    users, total, err := userService.List(ctx, queryParam(ctx, "search"), page, limit)
+    if err != nil {
+        return ListUsersResponse{}, err
+    }
+    return ListUsersResponse{Users: users, Total: total}, nil
+}
+
+// intQuery reads a positive integer query parameter, or def when it is absent.
+func intQuery(ctx context.Context, name string, def int) (int, error) {
+    v := queryParam(ctx, name)
+    if v == "" {
+        return def, nil
+    }
+    n, err := strconv.Atoi(v)
+    if err != nil || n < 1 {
+        return 0, apix.BadRequest(name + " must be a positive integer")
+    }
+    return n, nil
 }
 
 // Register
-e.GET("/users", echoadapter.Wrap(ListUsers,
+echoadapter.Get(adapter, "/users", ListUsers,
     apix.WithSummary("List users"),
     apix.WithTags("users"),
-))
+    apix.WithParameter(apix.Parameter{Name: "page", In: "query", Description: "Page number", SchemaType: "integer", Example: 1}),
+    apix.WithParameter(apix.Parameter{Name: "limit", In: "query", Description: "Page size", SchemaType: "integer", Example: 10}),
+    apix.WithParameter(apix.Parameter{Name: "search", In: "query", Description: "Search term", Example: "john"}),
+)
 ```
+
+`queryParam` reads the query that a middleware copies into the request context (see [Reading Path and Query Parameters](docs/FRAMEWORK_GUIDES.md#reading-path-and-query-parameters)). apix does not read `query:` struct tags.
 
 ### Example 5: RFC 9457 Problem Details
 
@@ -375,60 +468,67 @@ type ErrorResponse struct {
 
 ```go
 // Use RFC 9457 Problem Details
-func GetUser(ctx context.Context, req GetUserRequest) (GetUserResponse, error) {
-    if req.ID <= 0 {
-        return GetUserResponse{}, apix.BadRequest("Invalid user ID").
+func GetUser(ctx context.Context, _ *apix.NoBody) (UserResponse, error) {
+    id, err := strconv.Atoi(pathParam(ctx, "id"))
+    if err != nil || id <= 0 {
+        return UserResponse{}, apix.NewProblemDetails(http.StatusBadRequest, "Invalid user ID", "id must be a positive integer").
             WithType("https://api.example.com/errors/invalid-id").
             WithExtension("field", "id")
     }
     // ...
+    return UserResponse{ID: id}, nil
 }
 
-// Enable Problem Details encoding
-e.GET("/users/:id", echoadapter.Wrap(GetUser,
+// Answer errors as application/problem+json
+e := echo.New()
+adapter := echoadapter.New(e, echoadapter.Options{UseProblemDetails: true})
+e.HTTPErrorHandler = echoadapter.ProblemDetailsErrorHandler(e.HTTPErrorHandler)
+
+echoadapter.Get(adapter, "/users/:id", GetUser,
     apix.WithSummary("Get user"),
-    echoadapter.UseProblemDetails(), // Enables application/problem+json
-))
+)
 ```
+
+With `UseProblemDetails`, the adapter also answers `apix.NotFound` and the other `apix.HTTPError` errors as problem details.
 
 ---
 
 ## Troubleshooting
 
-### Issue 1: "Cannot infer request type"
+### Issue 1: A handler without a request body does not compile
 
-**Problem**: Handler doesn't have a request parameter.
+**Problem**: `echoadapter.Get` takes a `func(context.Context, *apix.NoBody) (TResp, error)`. A handler that takes only a context fails with:
 
-**Solution**: Add a request struct, even if empty:
+```text
+in call to echoadapter.Get, type func(ctx context.Context) (HealthResponse, error) of HealthCheck does not match apix.HandlerFunc[apix.NoBody, TResp] (cannot infer TResp)
+```
+
+**Solution**: Take an `*apix.NoBody`, as every `Get` and `Delete` handler does:
 
 ```go
 // BEFORE
 func HealthCheck(ctx context.Context) (HealthResponse, error) { ... }
 
 // AFTER
-type HealthCheckRequest struct{} // Empty request
-
-func HealthCheck(ctx context.Context, req HealthCheckRequest) (HealthResponse, error) { ... }
+func HealthCheck(ctx context.Context, _ *apix.NoBody) (HealthResponse, error) { ... }
 ```
 
-### Issue 2: "Path parameter not found in struct"
+### Issue 2: Path or query values are empty
 
-**Problem**: Path parameter in route doesn't match struct field.
+**Problem**: apix does not bind path or query values to the request type, and it ignores `path:` and `query:` struct tags.
 
-**Solution**: Use `path` struct tag:
+**Solution**: Declare the parameter with `apix.WithParameter`, and read it from the context (see [Reading Path and Query Parameters](docs/FRAMEWORK_GUIDES.md#reading-path-and-query-parameters)):
 
 ```go
 // Route: /users/:id
-type GetUserRequest struct {
-    ID int `path:"id"` // Must match :id in route
-}
+id := pathParam(ctx, "id")
 ```
 
 ### Issue 3: "Examples not showing in spec"
 
 **Problem**: Examples are not appearing in generated OpenAPI spec.
 
-**Solution**: Use `example` struct tags or `WithRequestExample()`:
+**Solution**: Use `example` struct tags, or `WithRequestExample()` on a route with a request body:
 
 ```go
 type User struct {
@@ -436,22 +536,22 @@ type User struct {
 }
 
 // Or programmatic
-e.GET("/users/:id", echoadapter.Wrap(GetUser,
-    apix.WithRequestExample(GetUserRequest{ID: 123}),
-))
+echoadapter.Post(adapter, "/users", CreateUser,
+    apix.WithRequestExample(CreateUserRequest{Name: "John Doe", Email: "john@example.com"}),
+)
 ```
 
 ### Issue 4: "Validation rules not in spec"
 
-**Problem**: Validation constraints not appearing in OpenAPI spec.
+**Problem**: Validation constraints such as `min`, `max` or `email` do not appear in the OpenAPI spec.
 
-**Solution**: Use standard validation tags:
+**Solution**: apix documents one rule, `required`, from a `validate` or `binding` tag. It also marks a field required when the field has no `omitempty` and is not a pointer, slice, map or interface. Your validator still enforces the other rules; state them in a `description` tag:
 
 ```go
 type CreateUserRequest struct {
-    Name  string `json:"name" validate:"required,min=3,max=50"`
-    Email string `json:"email" validate:"required,email"`
-    Age   int    `json:"age" validate:"gte=0,lte=120"`
+    Name  string `json:"name" validate:"required,min=3,max=50" description:"3 to 50 characters"`
+    Email string `json:"email" validate:"required,email" description:"Email address"`
+    Age   int    `json:"age,omitempty" validate:"gte=0,lte=120" description:"0 to 120"`
 }
 ```
 
@@ -459,14 +559,14 @@ type CreateUserRequest struct {
 
 **Problem**: Need to document custom error responses.
 
-**Solution**: Use `WithErrorResponse()`:
+**Solution**: Use the error options. `WithConflictError` and the other helpers document `apix.ErrorResponse`; `WithCustomErrorResponse` documents the model you pass:
 
 ```go
-e.POST("/users", echoadapter.Wrap(CreateUser,
+echoadapter.Post(adapter, "/users", CreateUser,
     apix.WithSummary("Create user"),
-    apix.WithErrorResponse(http.StatusConflict, "User already exists", apix.ErrorResponse{}),
-    apix.WithErrorResponse(http.StatusUnprocessableEntity, "Validation failed", ValidationError{}),
-))
+    apix.WithConflictError("User already exists"),
+    apix.WithCustomErrorResponse(http.StatusUnprocessableEntity, ValidationError{}, "Validation failed"),
+)
 ```
 
 ---
@@ -483,77 +583,69 @@ e.POST("/users", echoadapter.Wrap(CreateUser,
 
 ### Q: How do I handle authentication/security?
 
-**A**: Use plugins to add security schemes:
+**A**: Declare the schemes in `runtime.Config.SecuritySchemes`, and name them on routes with `apix.WithSecurity`:
 
 ```go
-// Create security plugin
-type SecurityPlugin struct {
-    apix.BasePlugin
+docs, err := runtime.NewHandler(runtime.Config{
+    Title:   "Users API",
+    Version: "1.0.0",
+    SecuritySchemes: openapi3.SecuritySchemes{
+        "BearerAuth": &openapi3.SecuritySchemeRef{Value: openapi3.NewJWTSecurityScheme()},
+    },
+})
+if err != nil {
+    log.Fatal(err)
 }
+docs.RegisterEcho(e)
 
-func (p *SecurityPlugin) Name() string { return "security" }
-
-func (p *SecurityPlugin) OnSpecBuild(doc *openapi3.T) error {
-    doc.Components.SecuritySchemes = openapi3.SecuritySchemes{
-        "bearerAuth": &openapi3.SecuritySchemeRef{
-            Value: openapi3.NewSecurityScheme().
-                WithType("http").
-                WithScheme("bearer").
-                WithBearerFormat("JWT"),
-        },
-    }
-    doc.Security = openapi3.SecurityRequirements{
-        {"bearerAuth": []string{}},
-    }
-    return nil
-}
-
-// Register plugin
-apix.RegisterPlugin(&SecurityPlugin{})
+echoadapter.Get(adapter, "/users/:id", GetUser,
+    apix.WithSecurity("BearerAuth"),
+)
 ```
+
+apix documents the requirement; your middleware still checks the token. The build fails for a route that names a scheme the config does not declare.
 
 ### Q: How do I customize the OpenAPI spec?
 
-**A**: Use the plugin system:
+**A**: Set the title, version, servers and security schemes in `runtime.Config`:
 
 ```go
-type CustomPlugin struct {
+docs, err := runtime.NewHandler(runtime.Config{
+    Title:   "Users API",
+    Version: "1.0.0",
+    Servers: []string{"https://api.example.com", "https://staging.example.com"},
+})
+if err != nil {
+    log.Fatal(err)
+}
+docs.RegisterEcho(e)
+```
+
+Change the rest in `runtime.Config.CustomizeBuilder`, or in a plugin's `OnSpecBuild`, which receives the built document:
+
+```go
+type ContactPlugin struct {
     apix.BasePlugin
 }
 
-func (p *CustomPlugin) OnSpecBuild(doc *openapi3.T) error {
-    // Add custom servers
-    doc.Servers = openapi3.Servers{
-        {URL: "https://api.example.com"},
-        {URL: "https://staging.example.com"},
-    }
+func (p *ContactPlugin) OnSpecBuild(doc *openapi3.T) error {
+    doc.Info.Contact = &openapi3.Contact{Name: "API Team", Email: "api@example.com"}
     return nil
 }
 
-apix.RegisterPlugin(&CustomPlugin{})
+apix.RegisterPlugin(&ContactPlugin{BasePlugin: apix.BasePlugin{PluginName: "contact"}})
 ```
 
 ### Q: How do I enable Swagger UI?
 
-**A**: Use the runtime package:
-
-```go
-import "github.com/Infra-Forge/infra-apix/runtime"
-
-// Register Swagger UI (optional, behind feature flag)
-runtime.RegisterSwaggerUI(e, "/swagger")
-
-// Always available: /openapi.json
-runtime.RegisterOpenAPIHandler(e, "/openapi.json")
-```
+**A**: Set `EnableSwaggerUI: true` in `runtime.Config`, as in [Step 5](#step-5-serve-the-openapi-document). The page is served at `/swagger`, or at `SwaggerUIPath` when you set it. Leave it off where you do not want the page.
 
 ### Q: What about performance?
 
-**A**: Apix is designed for performance:
-- Spec generation is cached at runtime
-- Reflection is done once during registration
-- No runtime overhead for request handling
-- Use `apix generate` for zero runtime cost
+**A**: Apix keeps the document off the request path:
+- The runtime handler builds the document on the first request, and keeps it until a route or plugin is registered or removed (`CacheTTL` also rebuilds it once it is that old)
+- Schemas are reflected when the document is built, not on each request
+- Handling a request decodes and encodes JSON; it does not touch the document
 
 ### Q: How do I test my handlers?
 
@@ -562,7 +654,7 @@ runtime.RegisterOpenAPIHandler(e, "/openapi.json")
 ```go
 func TestCreateUser(t *testing.T) {
     req := CreateUserRequest{Name: "John", Email: "john@example.com"}
-    resp, err := CreateUser(context.Background(), req)
+    resp, err := CreateUser(context.Background(), &req)
 
     if err != nil {
         t.Fatalf("unexpected error: %v", err)
@@ -584,7 +676,7 @@ e.Use(middleware.Logger())
 e.Use(middleware.Recover())
 
 // Apix handlers work normally
-e.GET("/users", echoadapter.Wrap(GetUser))
+echoadapter.Get(adapter, "/users/:id", GetUser)
 ```
 
 ---
@@ -605,9 +697,9 @@ type User struct {
 
 ```go
 // Instead of manually adding each error response
-e.GET("/users/:id", echoadapter.Wrap(GetUser,
-    apix.WithStandardErrors(), // Adds 400, 401, 403, 404, 500
-))
+echoadapter.Get(adapter, "/users/:id", GetUser,
+    apix.WithStandardErrors(), // Adds 400, 422, 500
+)
 ```
 
 ### 3. Use Plugins for Cross-Cutting Concerns
@@ -624,27 +716,28 @@ func (p *AutoTagPlugin) OnRouteRegister(ref *apix.RouteRef) error {
     }
     return nil
 }
+
+// Register it before the routes: OnRouteRegister runs as each route is registered
+apix.RegisterPlugin(&AutoTagPlugin{BasePlugin: apix.BasePlugin{PluginName: "auto-tag"}})
 ```
 
 ### 4. Enable Logging for Debugging
 
 ```go
-import "github.com/Infra-Forge/infra-apix/internal/logging"
-
-// Enable structured logging
-logging.SetLogger(logging.NewJSONLogger(slog.LevelDebug))
+// Set the logger before registering routes to see their events
+apix.SetLogger(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 ```
 
 ### 5. Use CI/CD Spec Guard
 
 ```yaml
-# .github/workflows/ci.yml
+# .github/workflows/ci.yml; ./cmd/openapi is your program that prints the document
 - name: Generate OpenAPI spec
-  run: apix generate -o openapi.yaml
+  run: go run ./cmd/openapi > docs/openapi.json
 
 - name: Check for spec drift
   run: |
-    if ! git diff --exit-code openapi.yaml; then
+    if ! git diff --exit-code docs/openapi.json; then
       echo "OpenAPI spec has drifted from code!"
       exit 1
     fi
@@ -657,7 +750,7 @@ logging.SetLogger(logging.NewJSONLogger(slog.LevelDebug))
 1. ✅ Install apix: `go get github.com/Infra-Forge/infra-apix`
 2. ✅ Remove swaggo dependencies
 3. ✅ Convert one endpoint as a proof of concept
-4. ✅ Generate spec: `apix generate -o openapi.yaml`
+4. ✅ Serve the spec with `runtime.NewHandler`
 5. ✅ Verify spec in Swagger UI
 6. ✅ Migrate remaining endpoints incrementally
 7. ✅ Update CI/CD pipelines
