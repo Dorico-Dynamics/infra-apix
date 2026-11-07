@@ -204,6 +204,15 @@ models_CreateUserRequest:
 
 `age` is required because it has no `omitempty`, not because of its rules.
 
+The builder matches `required` anywhere in the tag, so conditional rules such as `required_if`, `required_unless` and `required_with` also mark the property required, with no condition. The schema then requires a field your validator lets clients leave out:
+
+```go
+type UpdateOrderRequest struct {
+    Status string `json:"status,omitempty"`
+    Reason string `json:"reason,omitempty" validate:"required_if=Status cancelled"` // listed in required
+}
+```
+
 ### Binding Tags (Gin)
 
 `binding:"required"` counts as `validate:"required"` does.

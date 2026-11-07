@@ -558,7 +558,7 @@ echoadapter.Post(adapter, "/users", CreateUser,
 
 **Problem**: Validation constraints such as `min`, `max` or `email` do not appear in the OpenAPI spec.
 
-**Solution**: apix documents one rule, `required`, from a `validate` or `binding` tag. It also marks a field required when the field has no `omitempty` and is not a pointer, slice, map or interface. Your validator still enforces the other rules; state them in a `description` tag:
+**Solution**: apix documents one rule, `required`, from a `validate` or `binding` tag. Any rule whose name contains it, such as `required_if`, also marks the field required, with no condition. apix also marks a field required when the field has no `omitempty` and is not a pointer, slice, map or interface. Your validator still enforces the other rules; state them in a `description` tag:
 
 ```go
 type CreateUserRequest struct {

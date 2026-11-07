@@ -361,6 +361,8 @@ Supported tags:
 - `binding`: Required fields (`required`)
 - `description`: Field-level documentation
 
+A `validate` or `binding` rule whose name contains `required`, such as `required_if`, also marks the field required, unconditionally ([Validation Tags](docs/OPENAPI_GENERATION.md#validation-tags)).
+
 ## CLI Reference
 
 The CLI cannot generate your API's document yet: it reads the routes registered in its own process, so it finds none (see [CLI Usage](docs/CLI_USAGE.md)). Its commands and flags:
