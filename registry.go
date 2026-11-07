@@ -363,7 +363,13 @@ func typeOf(v any) reflect.Type {
 
 // defaultOperationID generates a stable ID combining method and path.
 func defaultOperationID(method RouteMethod, path string) string {
-	normalized := strings.ReplaceAll(strings.Trim(path, "/"), "/", "_")
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	for i, segment := range segments {
+		// Echo, Gin and Fiber write a path parameter as :id, chi and mux as
+		// {id}; the builder documents both as {id}.
+		segments[i] = strings.TrimPrefix(segment, ":")
+	}
+	normalized := strings.Join(segments, "_")
 	normalized = strings.ReplaceAll(normalized, "{", "")
 	normalized = strings.ReplaceAll(normalized, "}", "")
 	if normalized == "" {
