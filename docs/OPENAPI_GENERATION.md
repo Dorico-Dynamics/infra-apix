@@ -27,7 +27,7 @@ Complete guide to generating OpenAPI 3.1 specifications with `apix`.
 - ✅ **Type-safe** - Compile-time validation of handler signatures
 - ✅ **Automatic schema generation** - From Go structs with full type support
 - ✅ **Nullable detection** - Pointer types become nullable in OpenAPI
-- ✅ **Validation integration** - Respects `validate` and `binding` tags
+- ✅ **Required fields** - `validate:"required"` and `binding:"required"` mark properties required
 - ✅ **Standard error responses** - Shared ErrorResponse schema
 
 ## Basic Generation
@@ -123,15 +123,17 @@ data, contentType, err := openapi.EncodeDocument(doc, "yaml")
 
 ## Struct Tags
 
-`apix` respects standard Go struct tags for schema generation.
+`apix` reads the `json`, `validate`, `binding`, `description`, `example` and `format` struct tags. The generated schemas below are what the builder emits for these types in a package named `models` (see [Component Names](#component-names)).
 
 ### JSON Tags
+
+A property is required when the field has no `omitempty` and is not a pointer, slice, map or interface, or when its tag says `validate:"required"` or `binding:"required"`. A pointer is also nullable.
 
 ```go
 type User struct {
     ID       string  `json:"id"`                    // Required field
     Name     string  `json:"name"`                  // Required field
-    Email    *string `json:"email,omitempty"`       // Optional (pointer + omitempty)
+    Email    *string `json:"email,omitempty"`       // Optional and nullable (pointer)
     Age      int     `json:"age,omitempty"`         // Optional (omitempty)
     Internal string  `json:"-"`                     // Excluded from schema
     Bio      string  `json:"bio,omitempty"`         // Optional field
@@ -140,26 +142,29 @@ type User struct {
 
 **Generated OpenAPI:**
 ```yaml
-User:
-  type: object
-  required:
-    - id
-    - name
+models_User:
   properties:
+    age:
+      format: int32
+      type: integer
+    bio:
+      type: string
+    email:
+      nullable: true
+      type: string
     id:
       type: string
     name:
       type: string
-    email:
-      type: string
-      nullable: true
-    age:
-      type: integer
-    bio:
-      type: string
+  required:
+    - id
+    - name
+  type: object
 ```
 
 ### Validation Tags
+
+`validate:"required"` marks a property required, even with `omitempty`. The builder reads no other rule: your validator enforces `min`, `max`, `email` and the rest at runtime, but they do not appear in the schema.
 
 ```go
 type CreateUserRequest struct {
@@ -169,12 +174,29 @@ type CreateUserRequest struct {
 }
 ```
 
-**Supported validators:**
-- `required` - Marks field as required
-- `min`, `max` - Sets minimum/maximum values
-- `email`, `url` - Format validation (informational)
+**Generated OpenAPI:**
+```yaml
+models_CreateUserRequest:
+  properties:
+    age:
+      format: int32
+      type: integer
+    email:
+      type: string
+    name:
+      type: string
+  required:
+    - name
+    - email
+    - age
+  type: object
+```
+
+`age` is required because it has no `omitempty`, not because of its rules.
 
 ### Binding Tags (Gin)
+
+`binding:"required"` counts as `validate:"required"` does.
 
 ```go
 type CreateUserRequest struct {
@@ -194,15 +216,18 @@ type User struct {
 
 **Generated OpenAPI:**
 ```yaml
-User:
-  type: object
+models_User:
   properties:
     id:
-      type: string
       description: Unique user identifier
-    name:
       type: string
+    name:
       description: User's full name
+      type: string
+  required:
+    - id
+    - name
+  type: object
 ```
 
 ## Schema Customization
@@ -228,25 +253,28 @@ type Transaction struct {
 
 **Generated OpenAPI:**
 ```yaml
-Transaction:
-  type: object
+models_Transaction:
+  properties:
+    amount:
+      description: Decimal number represented as string for precision
+      example: "123.45"
+      format: decimal
+      type: string
+    date:
+      format: date-time
+      type: string
+    id:
+      format: uuid
+      type: string
+    updated_at:
+      format: date-time
+      nullable: true
+      type: string
   required:
     - id
     - amount
     - date
-  properties:
-    id:
-      type: string
-      format: uuid
-    amount:
-      type: string  # decimal.Decimal
-    date:
-      type: string
-      format: date-time
-    updated_at:
-      type: string
-      format: date-time
-      nullable: true
+  type: object
 ```
 
 ### Nested Structs
@@ -267,33 +295,32 @@ type User struct {
 
 **Generated OpenAPI:**
 ```yaml
-Address:
-  type: object
-  required:
-    - street
-    - city
-    - country
+models_Address:
   properties:
-    street:
-      type: string
     city:
       type: string
     country:
       type: string
-
-User:
-  type: object
+    street:
+      type: string
   required:
-    - id
-    - name
-    - address
+    - street
+    - city
+    - country
+  type: object
+models_User:
   properties:
+    address:
+      $ref: '#/components/schemas/models_Address'
     id:
       type: string
     name:
       type: string
-    address:
-      $ref: '#/components/schemas/Address'
+  required:
+    - id
+    - name
+    - address
+  type: object
 ```
 
 ### Arrays and Slices
@@ -307,19 +334,21 @@ type UserListResponse struct {
 
 **Generated OpenAPI:**
 ```yaml
-UserListResponse:
-  type: object
-  required:
-    - users
-    - total
+models_UserListResponse:
   properties:
-    users:
-      type: array
-      items:
-        $ref: '#/components/schemas/User'
     total:
+      format: int32
       type: integer
+    users:
+      items:
+        $ref: '#/components/schemas/models_User'
+      type: array
+  required:
+    - total
+  type: object
 ```
+
+A slice is optional unless its tag says `validate:"required"`.
 
 ### Maps
 
@@ -331,16 +360,16 @@ type Metadata struct {
 
 **Generated OpenAPI:**
 ```yaml
-Metadata:
-  type: object
-  required:
-    - tags
+models_Metadata:
   properties:
     tags:
-      type: object
       additionalProperties:
         type: string
+      type: object
+  type: object
 ```
+
+A map is optional unless its tag says `validate:"required"`.
 
 ### Enums
 
