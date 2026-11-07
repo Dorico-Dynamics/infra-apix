@@ -413,6 +413,8 @@ func main() {
 	handler.RegisterHTTP(mux)
 	r.Any("/openapi.json", gin.WrapH(mux))
 	r.Any("/swagger", gin.WrapH(mux))
+	// The page loads its stylesheet and scripts from below its own path.
+	r.Any("/swagger/*file", gin.WrapH(mux))
 
 	// Health check endpoint
 	r.GET("/health", func(c *gin.Context) {
