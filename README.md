@@ -107,7 +107,7 @@ func main() {
     echoadapter.Post(adapter, "/api/items", createItemHandler,
         apix.WithSummary("Create a new item"),
         apix.WithTags("items"),
-        apix.WithSecurity("BearerAuth"),
+        apix.WithSecurity("BearerAuth"), // documents the requirement; it checks no token
     )
 
     echoadapter.Get(adapter, "/api/items", listItemsHandler,
@@ -140,6 +140,8 @@ func main() {
 
 Run it with `go mod tidy && go run .`.
 
+`apix.WithSecurity` only documents the requirement. These examples check no token, so `POST /api/items` accepts a request without one; put your authentication middleware in front of the routes it protects.
+
 ### Chi Example
 
 With `items.go` from the Echo example, replace `main.go` with:
@@ -166,7 +168,7 @@ func main() {
     chiadapter.Post(adapter, "/api/items", createItemHandler,
         apix.WithSummary("Create a new item"),
         apix.WithTags("items"),
-        apix.WithSecurity("BearerAuth"),
+        apix.WithSecurity("BearerAuth"), // documents the requirement; it checks no token
     )
 
     chiadapter.Get(adapter, "/api/items", listItemsHandler,
@@ -220,7 +222,7 @@ func main() {
     muxadapter.Post(adapter, "/api/items", createItemHandler,
         apix.WithSummary("Create a new item"),
         apix.WithTags("items"),
-        apix.WithSecurity("BearerAuth"),
+        apix.WithSecurity("BearerAuth"), // documents the requirement; it checks no token
     )
 
     muxadapter.Get(adapter, "/api/items", listItemsHandler,

@@ -232,7 +232,7 @@ apix.WithDeprecated()
 
 ### WithSecurity
 
-Adds security requirements to the operation.
+Adds security requirements to the operation. It documents them only: the adapter checks no credentials, so authentication middleware must protect the route.
 
 ```go
 func WithSecurity(name string, scopes ...string) RouteOption
