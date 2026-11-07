@@ -339,14 +339,19 @@ func main() {
 Serve the spec dynamically at runtime:
 
 ```go
+import "github.com/Infra-Forge/infra-apix/openapi"
+
 handler, err := runtime.NewHandler(runtime.Config{
     Title:           "My API",
     Version:         "1.0.0",
-    Description:     "User management API",
     Format:          "json", // or "yaml"
     EnableSwaggerUI: true,
     Servers:         []string{"https://api.example.com", "http://localhost:8080"},
     Validate:        true,
+    // Config has no description field; set it on the builder.
+    CustomizeBuilder: func(b *openapi.Builder) {
+        b.Info.Description = "User management API"
+    },
 })
 if err != nil {
     log.Fatal(err)
@@ -369,18 +374,18 @@ handler, err := runtime.NewHandler(runtime.Config{
 
 ### Add Security Schemes
 
+Declare every scheme that a route names with `apix.WithSecurity`. The build fails for a scheme a route names but nothing declares.
+
 ```go
 import "github.com/getkin/kin-openapi/openapi3"
 
 handler, err := runtime.NewHandler(runtime.Config{
     Title:   "My API",
     Version: "1.0.0",
-    CustomizeBuilder: func(b *openapi.Builder) {
-        b.SecuritySchemes = openapi3.SecuritySchemes{
-            "BearerAuth": &openapi3.SecuritySchemeRef{
-                Value: openapi3.NewJWTSecurityScheme(),
-            },
-        }
+    SecuritySchemes: openapi3.SecuritySchemes{
+        "BearerAuth": &openapi3.SecuritySchemeRef{
+            Value: openapi3.NewJWTSecurityScheme(),
+        },
     },
 })
 ```

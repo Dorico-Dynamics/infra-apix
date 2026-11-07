@@ -38,24 +38,34 @@ Generate and serve the spec at runtime:
 
 ```go
 import (
+    "log"
+    "net/http"
+
+    "github.com/Infra-Forge/infra-apix/openapi"
     "github.com/Infra-Forge/infra-apix/runtime"
-    "github.com/getkin/kin-openapi/openapi3"
 )
 
 handler, err := runtime.NewHandler(runtime.Config{
     Title:           "My API",
     Version:         "1.0.0",
-    Description:     "API for managing users and resources",
     Format:          "json", // or "yaml"
     EnableSwaggerUI: true,
     Servers:         []string{"https://api.example.com"},
     Validate:        true, // Validate spec before serving
+    // Config has no description field; set it on the builder.
+    CustomizeBuilder: func(b *openapi.Builder) {
+        b.Info.Description = "API for managing users and resources"
+    },
 })
+if err != nil {
+    log.Fatal(err)
+}
 
 // Register with your framework
 handler.RegisterEcho(e) // For Echo
-// or
-handler.RegisterHTTP(mux) // For other frameworks
+// or, for other frameworks, fill a ServeMux and mount it on your router
+mux := http.NewServeMux()
+handler.RegisterHTTP(mux)
 ```
 
 ### CLI Generation
@@ -365,38 +375,49 @@ Rename one type of each pair. `Builder.Build` returns this error. The runtime ha
 
 ### Defining Security Schemes
 
+Declare every scheme that a route names with `apix.WithSecurity` in `Config.SecuritySchemes`. The build fails for a scheme a route names but nothing declares.
+
 ```go
 import (
+    "log"
+
     "github.com/Infra-Forge/infra-apix/runtime"
     "github.com/getkin/kin-openapi/openapi3"
 )
 
-handler, _ := runtime.NewHandler(runtime.Config{
+handler, err := runtime.NewHandler(runtime.Config{
     Title:   "My API",
     Version: "1.0.0",
-    CustomizeBuilder: func(b *openapi.Builder) {
-        b.SecuritySchemes = openapi3.SecuritySchemes{
-            "BearerAuth": &openapi3.SecuritySchemeRef{
-                Value: openapi3.NewJWTSecurityScheme(),
+    SecuritySchemes: openapi3.SecuritySchemes{
+        "BearerAuth": &openapi3.SecuritySchemeRef{
+            Value: openapi3.NewJWTSecurityScheme(),
+        },
+        "ApiKeyAuth": &openapi3.SecuritySchemeRef{
+            Value: openapi3.NewSecurityScheme().
+                WithType("apiKey").
+                WithIn("header").
+                WithName("X-API-Key"),
+        },
+        "OAuth2": &openapi3.SecuritySchemeRef{
+            Value: &openapi3.SecurityScheme{
+                Type: "oauth2",
+                Flows: &openapi3.OAuthFlows{
+                    AuthorizationCode: &openapi3.OAuthFlow{
+                        AuthorizationURL: "https://auth.example.com/oauth/authorize",
+                        TokenURL:         "https://auth.example.com/oauth/token",
+                        Scopes: map[string]string{
+                            "read:users":  "Read user data",
+                            "write:users": "Modify user data",
+                        },
+                    },
+                },
             },
-            "ApiKeyAuth": &openapi3.SecuritySchemeRef{
-                Value: openapi3.NewSecurityScheme().
-                    WithType("apiKey").
-                    WithIn("header").
-                    WithName("X-API-Key"),
-            },
-            "OAuth2": &openapi3.SecuritySchemeRef{
-                Value: openapi3.NewOAuth2SecurityScheme().
-                    WithAuthorizationURL("https://auth.example.com/oauth/authorize").
-                    WithTokenURL("https://auth.example.com/oauth/token").
-                    WithScopes(map[string]string{
-                        "read:users":  "Read user data",
-                        "write:users": "Modify user data",
-                    }),
-            },
-        }
+        },
     },
 })
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 ### Applying Security to Routes
@@ -424,14 +445,13 @@ echoadapter.Post(adapter, "/api/admin/users", adminCreateUser,
 Apply security to all routes by default:
 
 ```go
-handler, _ := runtime.NewHandler(runtime.Config{
+handler, err := runtime.NewHandler(runtime.Config{
+    SecuritySchemes: openapi3.SecuritySchemes{
+        "BearerAuth": &openapi3.SecuritySchemeRef{
+            Value: openapi3.NewJWTSecurityScheme(),
+        },
+    },
     CustomizeBuilder: func(b *openapi.Builder) {
-        b.SecuritySchemes = openapi3.SecuritySchemes{
-            "BearerAuth": &openapi3.SecuritySchemeRef{
-                Value: openapi3.NewJWTSecurityScheme(),
-            },
-        }
-        
         // Apply to all routes
         b.GlobalSecurity = openapi3.SecurityRequirements{
             openapi3.SecurityRequirement{
@@ -440,6 +460,9 @@ handler, _ := runtime.NewHandler(runtime.Config{
         }
     },
 })
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 ## Response Customization
