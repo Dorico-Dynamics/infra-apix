@@ -677,7 +677,7 @@ The document describes every route registered with apix, internal ones included,
 
 | Mode | When | How |
 |------|------|-----|
-| Off | Production, unless the API is public | Leave `EnableSwaggerUI` unset and do not register the handler on the public router. Publish a document generated at build time instead (`apix generate`). |
+| Off | Production, unless the API is public | Leave `EnableSwaggerUI` unset and do not register the handler on the public router. Publish a document generated at build time instead, with a program that registers your routes ([Programmatic Generation](OPENAPI_GENERATION.md#programmatic-generation)). |
 | Internal | Operators and developers need the live document | Register the handler on a server only they can reach: a loopback listener reached through a port-forward or tunnel, an internal network, or an authenticating proxy. |
 | Public | The API and every route in its document are public | Register the handler on the public router, after reviewing the document. |
 
