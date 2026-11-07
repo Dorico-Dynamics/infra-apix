@@ -386,8 +386,9 @@ The engine is built under these conditions:
    - it gains an apix v2 column and runs in CI against every adapter;
    - huma stays as a reference column, so the comparison is measured, not
      claimed;
-   - v2.0.0 ships when every row passes on every adapter and each benchmark
-     stays within 10% of v1 per request.
+   - v2.0.0 ships when each row passes on every adapter it applies to, and
+     each benchmark stays within 10% of v1 per request. A router-specific
+     row runs on its own router: R4b, for example, is ServeMux's row.
 3. apix owns the security of decoding and binding:
    - strict defaults: 415, 413, and unknown fields refused;
    - fuzz tests for every decoder and binder
