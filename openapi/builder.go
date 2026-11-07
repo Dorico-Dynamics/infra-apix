@@ -258,7 +258,13 @@ func (b *Builder) buildRequestBody(ref *apix.RouteRef) (*openapi3.RequestBodyRef
 }
 
 func (b *Builder) buildResponse(route *apix.RouteRef, status int, ref *apix.ResponseRef) (*openapi3.Response, error) {
-	schemaRef, err := b.schemaFromTypes(ref.ExplicitModelType, ref.ModelType)
+	explicit, inferred := ref.ExplicitModelType, ref.ModelType
+	if status == http.StatusNoContent {
+		// A 204 has no content (RFC 9110, section 15.3.5): every adapter writes
+		// none, whatever the handler returns.
+		explicit, inferred = nil, nil
+	}
+	schemaRef, err := b.schemaFromTypes(explicit, inferred)
 	if err != nil {
 		return nil, err
 	}
@@ -343,12 +349,15 @@ func plainNumbers(value any) any {
 	return value
 }
 
+// schemaFromTypes returns the schema of explicit, or of inferred when explicit
+// is nil. A nil type and apix.NoBody have none: the adapters read no request
+// body into a NoBody and write no response body for one.
 func (b *Builder) schemaFromTypes(explicit reflect.Type, inferred reflect.Type) (*openapi3.SchemaRef, error) {
 	t := explicit
 	if t == nil {
 		t = inferred
 	}
-	if t == nil {
+	if t == nil || isNoBody(t) {
 		return nil, nil
 	}
 	return b.schemaRefFromType(t)
@@ -875,6 +884,16 @@ func sanitizeComponentName(name string) string {
 }
 
 var timeType = reflect.TypeOf(time.Time{})
+
+var noBodyType = reflect.TypeOf(apix.NoBody{})
+
+// isNoBody reports whether t is apix.NoBody or a pointer to it.
+func isNoBody(t reflect.Type) bool {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t == noBodyType
+}
 
 func isUUID(t reflect.Type) bool {
 	return t.PkgPath() == "github.com/google/uuid" && t.Name() == "UUID"

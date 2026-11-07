@@ -27,7 +27,9 @@ const (
 // HandlerFunc is the canonical typed handler signature. The request pointer may be nil when the route has no body.
 type HandlerFunc[TReq any, TResp any] func(ctx context.Context, req *TReq) (TResp, error)
 
-// NoBody is used for handlers without a request payload.
+// NoBody is the request or response type of a handler without a body. The
+// adapters decode no request into it (the handler receives nil) and write no
+// response body for it, and the OpenAPI document shows no content for it.
 type NoBody struct{}
 
 // RouteRef stores metadata captured at registration time for later OpenAPI generation.
