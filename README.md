@@ -690,7 +690,7 @@ We welcome contributions! Please see our [Contributing Guide](docs/CONTRIBUTING.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details
+MIT License, copyright [Dorico Dynamics LDA](https://doricod.co.mz) - see [LICENSE](LICENSE) for details
 
 ---
 
