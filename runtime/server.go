@@ -15,6 +15,7 @@ import (
 	apix "github.com/Infra-Forge/infra-apix"
 	"github.com/Infra-Forge/infra-apix/internal/errorhandler"
 	"github.com/Infra-Forge/infra-apix/internal/generation"
+	"github.com/Infra-Forge/infra-apix/internal/swaggerui"
 	"github.com/Infra-Forge/infra-apix/openapi"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/labstack/echo/v4"
@@ -51,7 +52,12 @@ type Config struct {
 	// SpecPath is the HTTP path serving the document. Default derived from format (/openapi.json).
 	SpecPath string
 
-	// SwaggerUI enables a lightweight UI at SwaggerUIPath referencing the spec.
+	// EnableSwaggerUI serves Swagger UI at SwaggerUIPath, default /swagger,
+	// and the files it loads below that path. The files are embedded in the
+	// binary, so the page loads nothing from another origin. Its
+	// Content-Security-Policy lets it send requests, the document's and Try it
+	// out's, only to its own origin and to the origins of Servers. Servers that
+	// CustomizeBuilder or a plugin adds are not among them.
 	EnableSwaggerUI bool
 	SwaggerUIPath   string
 
@@ -64,6 +70,10 @@ type Config struct {
 type Handler struct {
 	cfg        Config
 	newBuilder func() *openapi.Builder
+
+	// swaggerUI is the Swagger UI page and its files when EnableSwaggerUI is
+	// set.
+	swaggerUI []swaggerui.Route
 
 	// mu runs builds one at a time and guards built.
 	mu    sync.Mutex
@@ -104,6 +114,9 @@ func NewHandler(cfg Config) (*Handler, error) {
 	}
 
 	h := &Handler{cfg: cfg}
+	if cfg.EnableSwaggerUI {
+		h.swaggerUI = swaggerui.Routes(cfg.SwaggerUIPath, cfg.SpecPath, cfg.Servers)
+	}
 	h.newBuilder = func() *openapi.Builder {
 		b := openapi.NewBuilder()
 		if cfg.Title != "" {
@@ -160,11 +173,17 @@ func securitySchemeCopier(schemes openapi3.SecuritySchemes) (func() openapi3.Sec
 	}, nil
 }
 
-// RegisterHTTP registers handlers on the provided mux.
+// RegisterHTTP registers handlers on the provided mux: the document at
+// SpecPath, and when EnableSwaggerUI is set, the Swagger UI page and each file
+// it loads at its own path.
 func (h *Handler) RegisterHTTP(mux *http.ServeMux) {
 	mux.Handle(h.cfg.SpecPath, h)
-	if h.cfg.EnableSwaggerUI {
-		mux.HandleFunc(h.cfg.SwaggerUIPath, h.swaggerUI)
+	for _, route := range h.swaggerUI {
+		mux.HandleFunc(route.Path, func(w http.ResponseWriter, r *http.Request) {
+			if err := route.Write(w, r); err != nil {
+				errorhandler.LogWriteFailed(r, "Swagger UI write failed", err)
+			}
+		})
 	}
 }
 
@@ -188,9 +207,9 @@ func (h *Handler) RegisterEcho(e *echo.Echo) {
 		}
 		return nil
 	})
-	if h.cfg.EnableSwaggerUI {
-		e.GET(h.cfg.SwaggerUIPath, func(c echo.Context) error {
-			if err := c.HTML(http.StatusOK, renderSwaggerUI(h.cfg.SpecPath)); err != nil {
+	for _, route := range h.swaggerUI {
+		e.GET(route.Path, func(c echo.Context) error {
+			if err := route.Write(c.Response(), c.Request()); err != nil {
 				errorhandler.LogWriteFailed(c.Request(), "Swagger UI write failed", err)
 				return err
 			}
@@ -218,13 +237,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if _, err := w.Write(payload); err != nil {
 		errorhandler.LogWriteFailed(r, "OpenAPI document write failed", err)
-	}
-}
-
-func (h *Handler) swaggerUI(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := w.Write([]byte(renderSwaggerUI(h.cfg.SpecPath))); err != nil {
-		errorhandler.LogWriteFailed(r, "Swagger UI write failed", err)
 	}
 }
 
@@ -272,29 +284,10 @@ func (h *Handler) build(ctx context.Context) ([]byte, string, error) {
 	return openapi.EncodeDocument(doc, h.cfg.Format)
 }
 
-func renderSwaggerUI(specPath string) string {
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Swagger UI</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
-</head>
-<body>
-  <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-  <script>
-    window.onload = () => {
-      window.ui = SwaggerUIBundle({
-        url: '%s',
-        dom_id: '#swagger-ui',
-        presets: [SwaggerUIBundle.presets.apis],
-        layout: 'BaseLayout'
-      });
-    };
-  </script>
-</body>
-</html>`, specPath)
-}
-
-func RenderSwaggerUI(specPath string) string { return renderSwaggerUI(specPath) }
+// RenderSwaggerUI returns a standalone Swagger UI page that shows the document
+// at specPath and loads swagger-ui-dist from unpkg.com: the release the Handler
+// embeds, checked with Subresource Integrity. It starts Swagger UI from an
+// inline script, so a Content-Security-Policy must allow that script. The
+// Handler's page, see Config.EnableSwaggerUI, needs neither the CDN nor an
+// inline script.
+func RenderSwaggerUI(specPath string) string { return swaggerui.CDNPage(specPath) }

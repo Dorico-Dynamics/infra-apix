@@ -118,21 +118,28 @@ func TestHandlerCaching(t *testing.T) {
 	}
 }
 
+// TestSwaggerUIRender: the CDN page loads a pinned swagger-ui-dist release,
+// checked with Subresource Integrity.
 func TestSwaggerUIRender(t *testing.T) {
 	html := runtime.RenderSwaggerUI("/spec.json")
-	if !strings.Contains(html, "/spec.json") {
-		t.Fatalf("expected swagger to reference spec path")
+	for _, want := range []string{`url: "/spec.json"`, "<title>Swagger UI</title>", "https://unpkg.com/swagger-ui-dist@5.", `integrity="sha384-`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("page lacks %s:\n%s", want, html)
+		}
 	}
-	if !strings.Contains(html, "Swagger UI") {
-		t.Fatalf("expected swagger html output")
+	if strings.Contains(html, "swagger-ui-dist@5/") {
+		t.Errorf("page loads the floating major swagger-ui-dist@5:\n%s", html)
 	}
 }
 
+// TestSwaggerUIHandler: RegisterHTTP serves the page with its
+// Content-Security-Policy, which admits the origins of Servers, and the files
+// the page loads below its path.
 func TestSwaggerUIHandler(t *testing.T) {
 	apix.ResetRegistry()
 	apix.RegisterRoute(&apix.RouteRef{Method: apix.MethodGet, Path: "/ui", Responses: map[int]*apix.ResponseRef{http.StatusOK: {}}})
 
-	h, err := runtime.NewHandler(runtime.Config{EnableSwaggerUI: true})
+	h, err := runtime.NewHandler(runtime.Config{EnableSwaggerUI: true, Servers: []string{"https://api.example.com/v1", "/relative"}})
 	if err != nil {
 		t.Fatalf("new handler: %v", err)
 	}
@@ -140,11 +147,31 @@ func TestSwaggerUIHandler(t *testing.T) {
 	mux := http.NewServeMux()
 	h.RegisterHTTP(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/swagger", nil)
 	resp := httptest.NewRecorder()
-	mux.ServeHTTP(resp, req)
+	mux.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/swagger", nil))
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+	csp := resp.Header().Get("Content-Security-Policy")
+	for _, want := range []string{"script-src 'self';", "connect-src 'self' https://api.example.com;"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("Content-Security-Policy %q lacks %s", csp, want)
+		}
+	}
+	if !strings.Contains(resp.Body.String(), `<script src="/swagger/swagger-ui-bundle.js"></script>`) {
+		t.Errorf("page does not load the embedded bundle:\n%s", resp.Body.String())
+	}
+
+	for path, ctype := range map[string]string{
+		"/swagger/swagger-ui.css":         "text/css; charset=utf-8",
+		"/swagger/swagger-ui-bundle.js":   "text/javascript; charset=utf-8",
+		"/swagger/swagger-initializer.js": "text/javascript; charset=utf-8",
+	} {
+		resp := httptest.NewRecorder()
+		mux.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, path, nil))
+		if resp.Code != http.StatusOK || resp.Header().Get("Content-Type") != ctype || resp.Body.Len() == 0 {
+			t.Errorf("%s: %d %q with %d bytes, want 200 %q with the file", path, resp.Code, resp.Header().Get("Content-Type"), resp.Body.Len(), ctype)
+		}
 	}
 }
 
@@ -172,5 +199,14 @@ func TestRegisterEcho(t *testing.T) {
 	e.ServeHTTP(respUI, reqUI)
 	if respUI.Code != http.StatusOK {
 		t.Fatalf("expected swagger ui to respond 200, got %d", respUI.Code)
+	}
+	if csp := respUI.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self';") {
+		t.Errorf("Content-Security-Policy = %q, want scripts from the page's origin only", csp)
+	}
+
+	respJS := httptest.NewRecorder()
+	e.ServeHTTP(respJS, httptest.NewRequest(http.MethodGet, "/swagger/swagger-ui-bundle.js", nil))
+	if respJS.Code != http.StatusOK || respJS.Header().Get("Content-Type") != "text/javascript; charset=utf-8" || respJS.Body.Len() == 0 {
+		t.Errorf("bundle: %d %q with %d bytes, want 200 JavaScript", respJS.Code, respJS.Header().Get("Content-Type"), respJS.Body.Len())
 	}
 }
