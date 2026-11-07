@@ -2,9 +2,13 @@ package openapi_test
 
 import (
 	"encoding/json"
+	"errors"
+	"math"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	apix "github.com/Infra-Forge/infra-apix"
 	"github.com/Infra-Forge/infra-apix/openapi"
@@ -337,5 +341,129 @@ func TestBoolExamples(t *testing.T) {
 		if prop.Value.Example != want {
 			t.Errorf("%s example = %#v, want %#v", field, prop.Value.Example, want)
 		}
+	}
+}
+
+type jsonFormItem struct {
+	ID       string   `json:"id"`
+	Count    uint     `json:"count"`
+	Big      int64    `json:"big"`
+	IsActive bool     `json:"is_active"`
+	Ratio    float64  `json:"ratio"`
+	Tags     []string `json:"tags"`
+	Internal string   `json:"-"`
+	Note     string   `json:"note,omitempty"`
+}
+
+// TestExamplesAreStoredAsTheirJSONForm: an example given as a Go value other
+// than a JSON scalar (a struct, a pointer to one, a uint, a time.Time) is
+// documented as the JSON the handler would send: keyed by the json tags, with
+// integers as int64. kin-openapi validates the document, and its YAML shows the
+// names clients send, without the json:"-" field.
+func TestExamplesAreStoredAsTheirJSONForm(t *testing.T) {
+	item := jsonFormItem{ID: "item-1", Count: 3, Big: 9007199254740993, IsActive: true, Ratio: 0.5, Tags: []string{"a"}, Internal: "hidden"}
+	ref := &apix.RouteRef{
+		Method:      apix.MethodPost,
+		Path:        "/items",
+		RequestType: reflect.TypeOf(jsonFormItem{}),
+		Parameters: []apix.Parameter{
+			{Name: "limit", In: "query", SchemaType: "integer", Example: uint(50)},
+			{Name: "since", In: "query", SchemaType: "string", Example: time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)},
+		},
+	}
+	apix.WithRequestExample(item)(ref)
+	apix.RegisterResponse(ref, http.StatusCreated, reflect.TypeOf(jsonFormItem{}), apix.WithResponseExample(&item))
+
+	doc, err := openapi.NewBuilder().Build([]*apix.RouteRef{ref})
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+	if err := doc.Validate(t.Context()); err != nil {
+		t.Fatalf("document does not validate: %v", err)
+	}
+
+	want := map[string]any{"id": "item-1", "count": int64(3), "big": int64(9007199254740993), "is_active": true, "ratio": 0.5, "tags": []any{"a"}}
+	op := doc.Paths.Value("/items").Post
+	if got := op.RequestBody.Value.Content["application/json"].Example; !reflect.DeepEqual(got, want) {
+		t.Errorf("request example = %#v, want %#v", got, want)
+	}
+	if got := op.Responses.Status(http.StatusCreated).Value.Content["application/json"].Example; !reflect.DeepEqual(got, want) {
+		t.Errorf("response example = %#v, want %#v", got, want)
+	}
+	params := map[string]any{}
+	for _, p := range op.Parameters {
+		params[p.Value.Name] = p.Value.Example
+	}
+	if want := map[string]any{"limit": int64(50), "since": "2026-11-07T00:00:00Z"}; !reflect.DeepEqual(params, want) {
+		t.Errorf("parameter examples = %#v, want %#v", params, want)
+	}
+
+	data, _, err := openapi.EncodeDocument(doc, "yaml")
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	yamlDoc := string(data)
+	if strings.Count(yamlDoc, "is_active: true") != 2 {
+		t.Errorf("the YAML examples do not use the json tag names:\n%s", yamlDoc)
+	}
+	if strings.Contains(yamlDoc, "hidden") {
+		t.Errorf("the YAML examples carry the json:\"-\" field:\n%s", yamlDoc)
+	}
+}
+
+// TestExampleWithoutAJSONFormFailsTheBuild: an example encoding/json rejects
+// cannot be written into the document, so the build fails naming the route and
+// the example.
+func TestExampleWithoutAJSONFormFailsTheBuild(t *testing.T) {
+	tests := []struct {
+		name   string
+		ref    *apix.RouteRef
+		prefix string
+	}{
+		{
+			name: "parameter",
+			ref: &apix.RouteRef{
+				Method:     apix.MethodGet,
+				Path:       "/items",
+				Parameters: []apix.Parameter{{Name: "limit", In: "query", Example: make(chan int)}},
+				Responses:  map[int]*apix.ResponseRef{http.StatusOK: {}},
+			},
+			prefix: `GET /items: parameter "limit" example: `,
+		},
+		{
+			name: "request",
+			ref: &apix.RouteRef{
+				Method:         apix.MethodPost,
+				Path:           "/items",
+				RequestType:    reflect.TypeOf(jsonFormItem{}),
+				RequestExample: map[string]any{"ratio": math.Inf(1)},
+				Responses:      map[int]*apix.ResponseRef{http.StatusCreated: {}},
+			},
+			prefix: "POST /items: request example: ",
+		},
+		{
+			name: "response",
+			ref: &apix.RouteRef{
+				Method: apix.MethodGet,
+				Path:   "/items",
+				Responses: map[int]*apix.ResponseRef{
+					http.StatusOK: {ModelType: reflect.TypeOf(float64(0)), Example: math.NaN()},
+				},
+			},
+			prefix: "GET /items: response 200 example: ",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := openapi.NewBuilder().Build([]*apix.RouteRef{tc.ref})
+			if err == nil || !strings.HasPrefix(err.Error(), tc.prefix) {
+				t.Fatalf("Build error = %v, want one starting %q", err, tc.prefix)
+			}
+			var typeErr *json.UnsupportedTypeError
+			var valueErr *json.UnsupportedValueError
+			if !errors.As(err, &typeErr) && !errors.As(err, &valueErr) {
+				t.Errorf("Build error %v does not wrap the encoding/json error", err)
+			}
+		})
 	}
 }

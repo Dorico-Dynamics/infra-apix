@@ -1,9 +1,12 @@
 package openapi
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"net/http"
 	"reflect"
 	"slices"
@@ -148,9 +151,11 @@ func (b *Builder) addRoute(doc *openapi3.T, ref *apix.RouteRef) error {
 			if p.SchemaType == "" {
 				schemaType(param.Schema.Value, "string")
 			}
-			if p.Example != nil {
-				param.Example = p.Example
+			example, err := exampleValue(p.Example)
+			if err != nil {
+				return fmt.Errorf("%s %s: parameter %q example: %w", ref.Method, ref.Path, p.Name, err)
 			}
+			param.Example = example
 			op.Parameters = append(op.Parameters, &openapi3.ParameterRef{Value: param})
 		}
 	}
@@ -184,7 +189,7 @@ func (b *Builder) addRoute(doc *openapi3.T, ref *apix.RouteRef) error {
 
 	for _, status := range statusCodes {
 		respRef := ref.Responses[status]
-		oaResp, err := b.buildResponse(status, respRef)
+		oaResp, err := b.buildResponse(ref, status, respRef)
 		if err != nil {
 			return err
 		}
@@ -232,12 +237,12 @@ func (b *Builder) buildRequestBody(ref *apix.RouteRef) (*openapi3.RequestBodyRef
 		contentType = "application/json"
 	}
 
-	content := openapi3.Content{}
-	media := &openapi3.MediaType{Schema: schemaRef}
-	if ref.RequestExample != nil {
-		media.Example = ref.RequestExample
+	example, err := exampleValue(ref.RequestExample)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: request example: %w", ref.Method, ref.Path, err)
 	}
-	content[contentType] = media
+	content := openapi3.Content{}
+	content[contentType] = &openapi3.MediaType{Schema: schemaRef, Example: example}
 
 	required := ref.BodyRequired
 	if !ref.BodyRequired {
@@ -252,7 +257,7 @@ func (b *Builder) buildRequestBody(ref *apix.RouteRef) (*openapi3.RequestBodyRef
 	}, nil
 }
 
-func (b *Builder) buildResponse(status int, ref *apix.ResponseRef) (*openapi3.Response, error) {
+func (b *Builder) buildResponse(route *apix.RouteRef, status int, ref *apix.ResponseRef) (*openapi3.Response, error) {
 	schemaRef, err := b.schemaFromTypes(ref.ExplicitModelType, ref.ModelType)
 	if err != nil {
 		return nil, err
@@ -274,11 +279,11 @@ func (b *Builder) buildResponse(status int, ref *apix.ResponseRef) (*openapi3.Re
 		if contentType == "" {
 			contentType = "application/json"
 		}
-		media := &openapi3.MediaType{Schema: schemaRef}
-		if ref.Example != nil {
-			media.Example = ref.Example
+		example, err := exampleValue(ref.Example)
+		if err != nil {
+			return nil, fmt.Errorf("%s %s: response %d example: %w", route.Method, route.Path, status, err)
 		}
-		resp.Content[contentType] = media
+		resp.Content[contentType] = &openapi3.MediaType{Schema: schemaRef, Example: example}
 	}
 
 	for _, hdr := range ref.Headers {
@@ -286,6 +291,56 @@ func (b *Builder) buildResponse(status int, ref *apix.ResponseRef) (*openapi3.Re
 	}
 
 	return resp, nil
+}
+
+// exampleValue returns an example as the JSON value a handler would send.
+// kin-openapi validates an example by walking JSON values, and the YAML encoder
+// writes a struct with its Go field names, so anything but a JSON scalar (a
+// struct, a typed slice or map, a uint, a time.Time) is stored as its JSON
+// form, with integers as int64.
+func exampleValue(example any) (any, error) {
+	switch v := example.(type) {
+	case nil, bool, string, int, int32, int64:
+		return example, nil
+	case float64:
+		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+			return v, nil
+		}
+	}
+	data, err := json.Marshal(example)
+	if err != nil {
+		return nil, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	return plainNumbers(value), nil
+}
+
+// plainNumbers replaces each json.Number in a decoded JSON value with an int64
+// when it is an integer in range, or a float64 otherwise.
+func plainNumbers(value any) any {
+	switch v := value.(type) {
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return i
+		}
+		if f, err := v.Float64(); err == nil {
+			return f
+		}
+	case []any:
+		for i, item := range v {
+			v[i] = plainNumbers(item)
+		}
+	case map[string]any:
+		for key, item := range v {
+			v[key] = plainNumbers(item)
+		}
+	}
+	return value
 }
 
 func (b *Builder) schemaFromTypes(explicit reflect.Type, inferred reflect.Type) (*openapi3.SchemaRef, error) {
