@@ -8,16 +8,16 @@ import (
 	"time"
 
 	apix "github.com/Infra-Forge/infra-apix"
-	ginadapter "github.com/Infra-Forge/infra-apix/gin"
+	muxadapter "github.com/Infra-Forge/infra-apix/mux"
 	"github.com/Infra-Forge/infra-apix/openapi"
 	"github.com/Infra-Forge/infra-apix/runtime"
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/shopspring/decimal"
 )
 
-// Domain Models (matching infranotes-module structure)
+// Domain Models
 
 type DocumentModel struct {
 	ID            uuid.UUID  `json:"id"`
@@ -282,17 +282,14 @@ func main() {
 	// Reset registry for clean state
 	apix.ResetRegistry()
 
-	// Create Gin router
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
-	r.Use(gin.Logger())
-	r.Use(gin.Recovery())
+	// Create Mux router
+	r := mux.NewRouter()
 
 	// Create apix adapter
-	adapter := ginadapter.New(r)
+	adapter := muxadapter.New(r)
 
 	// Register Document routes
-	ginadapter.Post(adapter, "/api/documents", createDocument,
+	muxadapter.Post(adapter, "/api/documents", createDocument,
 		apix.WithSummary("Upload financial document"),
 		apix.WithDescription("Upload a new financial document for processing (bank statement, invoice, receipt)"),
 		apix.WithTags("Documents"),
@@ -300,7 +297,7 @@ func main() {
 		apix.WithNotFoundError("Document not found"),
 	)
 
-	ginadapter.Get(adapter, "/api/documents/:id", getDocument,
+	muxadapter.Get(adapter, "/api/documents/{id}", getDocument,
 		apix.WithSummary("Get document by ID"),
 		apix.WithDescription("Retrieve a specific financial document by its ID"),
 		apix.WithTags("Documents"),
@@ -314,7 +311,7 @@ func main() {
 		apix.WithNotFoundError("Document not found"),
 	)
 
-	ginadapter.Get(adapter, "/api/documents", listDocuments,
+	muxadapter.Get(adapter, "/api/documents", listDocuments,
 		apix.WithSummary("List all documents"),
 		apix.WithDescription("Retrieve a paginated list of all financial documents"),
 		apix.WithTags("Documents"),
@@ -323,7 +320,7 @@ func main() {
 	)
 
 	// Register Transaction routes
-	ginadapter.Post(adapter, "/api/transactions", createTransaction,
+	muxadapter.Post(adapter, "/api/transactions", createTransaction,
 		apix.WithSummary("Create transaction"),
 		apix.WithDescription("Create a new financial transaction"),
 		apix.WithTags("Transactions"),
@@ -331,7 +328,7 @@ func main() {
 		apix.WithStandardErrors(),
 	)
 
-	ginadapter.Get(adapter, "/api/transactions", listTransactions,
+	muxadapter.Get(adapter, "/api/transactions", listTransactions,
 		apix.WithSummary("List transactions"),
 		apix.WithDescription("Retrieve a paginated list of financial transactions"),
 		apix.WithTags("Transactions"),
@@ -344,7 +341,7 @@ func main() {
 	)
 
 	// Register Category routes (full CRUD)
-	ginadapter.Post(adapter, "/api/categories", createCategory,
+	muxadapter.Post(adapter, "/api/categories", createCategory,
 		apix.WithSummary("Create category"),
 		apix.WithDescription("Create a new transaction category"),
 		apix.WithTags("Categories"),
@@ -353,7 +350,7 @@ func main() {
 		apix.WithConflictError("Category with this name already exists"),
 	)
 
-	ginadapter.Put(adapter, "/api/categories/:id", updateCategory,
+	muxadapter.Put(adapter, "/api/categories/{id}", updateCategory,
 		apix.WithSummary("Update category"),
 		apix.WithDescription("Update an existing transaction category"),
 		apix.WithTags("Categories"),
@@ -363,7 +360,7 @@ func main() {
 		apix.WithNotFoundError("Category not found"),
 	)
 
-	ginadapter.Delete(adapter, "/api/categories/:id", deleteCategory,
+	muxadapter.Delete(adapter, "/api/categories/{id}", deleteCategory,
 		apix.WithSummary("Delete category"),
 		apix.WithDescription("Delete a transaction category"),
 		apix.WithTags("Categories"),
@@ -373,12 +370,16 @@ func main() {
 		apix.WithConflictError("Cannot delete category with existing transactions"),
 	)
 
+	// The document lists the address the server listens on, so the
+	// Swagger UI's "Try it out" calls this example.
+	port := 8083
+
 	// Create runtime handler for OpenAPI spec
 	handler, err := runtime.NewHandler(runtime.Config{
-		Title:           "InfraNotes Financial Analytics API",
+		Title:           "Dorico Dynamics Financial Analytics API",
 		Version:         "1.0.0",
 		Format:          "json",
-		Servers:         []string{"https://api.infranotes.com", "http://localhost:8080"},
+		Servers:         []string{fmt.Sprintf("http://localhost:%d", port)},
 		EnableSwaggerUI: true,
 		// Every scheme the routes name with apix.WithSecurity must be declared
 		SecuritySchemes: openapi3.SecuritySchemes{
@@ -392,9 +393,8 @@ func main() {
 
 			// Add contact info
 			b.Info.Contact = &openapi3.Contact{
-				Name:  "InfraNotes Support",
-				Email: "support@infranotes.com",
-				URL:   "https://infranotes.com/support",
+				Name: "Dorico Dynamics LDA",
+				URL:  "https://doricod.co.mz",
 			}
 
 			// Add license
@@ -408,30 +408,26 @@ func main() {
 		log.Fatalf("Failed to create runtime handler: %v", err)
 	}
 
-	// Register OpenAPI endpoints with Gin
+	// Register OpenAPI endpoints with Mux
 	mux := http.NewServeMux()
 	handler.RegisterHTTP(mux)
-	r.Any("/openapi.json", gin.WrapH(mux))
-	r.Any("/swagger", gin.WrapH(mux))
-	// The page loads its stylesheet and scripts from below its own path.
-	r.Any("/swagger/*file", gin.WrapH(mux))
+	r.PathPrefix("/openapi.json").Handler(mux)
+	r.PathPrefix("/swagger").Handler(mux)
 
 	// Health check endpoint
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "healthy",
-			"version": "1.0.0",
-		})
+	r.HandleFunc("/health", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"healthy","version":"1.0.0"}`)
 	})
 
 	// Start server
-	port := 8082
-	log.Printf("Starting InfraNotes Gin example server on port %d", port)
+	log.Printf("Starting Dorico Dynamics Mux example server on port %d", port)
 	log.Printf("OpenAPI spec available at: http://localhost:%d/openapi.json", port)
 	log.Printf("Swagger UI available at: http://localhost:%d/swagger", port)
 	log.Printf("Health check available at: http://localhost:%d/health", port)
 
-	if err := r.Run(fmt.Sprintf(":%d", port)); err != nil && err != http.ErrServerClosed {
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), r); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}
 }

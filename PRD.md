@@ -50,7 +50,7 @@ Go teams lack a robust, code-first way to generate OpenAPI documentation. Commen
 - 100% parity between routes and generated spec (CI drift gate passes).
 - No manual edits to `openapi.yaml` post-migration.
 - Onboard a new route with typed handler and doc generation in <5 minutes.
-- Production adoption (e.g., `infranotes-asset`).
+- Production adoption in a Dorico Dynamics LDA service.
 
 ### Milestones
 
@@ -59,7 +59,7 @@ Go teams lack a robust, code-first way to generate OpenAPI documentation. Commen
 - Struct tag parsing (`json`, `validate`, `binding`), pointer handling, wrapper detection.
 - Spec builder (kin-openapi), deterministic output, 201/401/403 defaults, shared error schema, examples.
 - CLI: `apix generate`, runtime `/openapi.json`, optional Swagger UI.
-- Integrate into `infranotes-asset` (subset of routes); enable CI drift check.
+- Integrate into a Dorico Dynamics LDA service (subset of routes); enable CI drift check.
 
 **Milestone 2 (v0.2)**
 - Chi & Gorilla/Mux adapters.
@@ -93,7 +93,7 @@ Go teams lack a robust, code-first way to generate OpenAPI documentation. Commen
 
 1. Approve PRD scope and milestones.
 2. Scaffold new Go module (core library + examples).
-3. Build Milestone 1 and integrate with `infranotes-asset` as proof of concept.
+3. Build Milestone 1 and integrate with a Dorico Dynamics LDA service as proof of concept.
 4. Add spec_guard + CI drift enforcement.
 5. Gather feedback, iterate toward Milestones 2 & 3.
 

@@ -1,4 +1,4 @@
-module github.com/Infra-Forge/infra-apix/examples/infranotes-mux
+module github.com/Infra-Forge/infra-apix/examples/dorico-dynamics-chi
 
 go 1.27.3
 
@@ -7,8 +7,8 @@ replace github.com/Infra-Forge/infra-apix => ../..
 require (
 	github.com/Infra-Forge/infra-apix v0.0.0-00010101000000-000000000000
 	github.com/getkin/kin-openapi v0.149.0
+	github.com/go-chi/chi/v5 v5.3.2
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/mux v1.8.1
 	github.com/shopspring/decimal v1.4.0
 )
 

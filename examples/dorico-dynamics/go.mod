@@ -1,4 +1,4 @@
-module github.com/Infra-Forge/infra-apix/examples/infranotes
+module github.com/Infra-Forge/infra-apix/examples/dorico-dynamics
 
 go 1.27.3
 

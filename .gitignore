@@ -39,8 +39,8 @@ go.work.sum
 Thumbs.db
 
 # Example binaries (these are reference code, not distributable binaries)
-examples/*/infranotes
-examples/*/infranotes-*
+examples/*/dorico-dynamics
+examples/*/dorico-dynamics-*
 examples/*/myapp
 examples/*/*.exe
 

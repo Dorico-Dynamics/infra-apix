@@ -73,19 +73,19 @@ make cover-html
 
 ```bash
 # Echo example
-cd examples/infranotes
+cd examples/dorico-dynamics
 go run main.go
 
 # Chi example
-cd examples/infranotes-chi
+cd examples/dorico-dynamics-chi
 go run main.go
 
 # Gin example
-cd examples/infranotes-gin
+cd examples/dorico-dynamics-gin
 go run main.go
 
 # Mux example
-cd examples/infranotes-mux
+cd examples/dorico-dynamics-mux
 go run main.go
 ```
 
@@ -393,10 +393,10 @@ func WithSummary(summary string) RouteOption {
    - Commits follow conventional format
 
 5. **Review Process:**
-   - Maintainers will review your PR
+   - The maintainer reviews your PR
    - Address feedback and comments
    - Make requested changes
-   - PR will be merged once approved
+   - Only the maintainer approves and merges PRs
 
 ### PR Template
 
@@ -478,7 +478,7 @@ for _, r := range routes {
 
 ```bash
 # Test with local changes: each example's go.mod replaces the module with ../..
-cd examples/infranotes
+cd examples/dorico-dynamics
 go run .
 ```
 
@@ -500,7 +500,7 @@ go run .
 ## Questions?
 
 - **Issues**: https://github.com/Dorico-Dynamics/infra-apix/issues
-- **Email**: support@infraforge.dev
+- **Website**: [Dorico Dynamics LDA](https://doricod.co.mz)
 
 Thank you for contributing to apix! 🚀
 

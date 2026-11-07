@@ -12,16 +12,16 @@ This directory contains reference examples showing how to use the `apix` library
 
 ## Available Examples
 
-### Complete Examples (InfraNotes Financial API)
+### Complete Examples (Dorico Dynamics Financial API)
 
 Full-featured financial analytics API demonstrating production-ready patterns:
 
 | Example | Framework | Port | Description |
 |---------|-----------|------|-------------|
-| **[infranotes](infranotes/)** | Echo | 8080 | Echo framework implementation |
-| **[infranotes-chi](infranotes-chi/)** | Chi | 8081 | Chi router implementation |
-| **[infranotes-gin](infranotes-gin/)** | Gin | 8082 | Gin framework implementation |
-| **[infranotes-mux](infranotes-mux/)** | Gorilla/Mux | 8083 | Mux router implementation |
+| **[dorico-dynamics](dorico-dynamics/)** | Echo | 8080 | Echo framework implementation |
+| **[dorico-dynamics-chi](dorico-dynamics-chi/)** | Chi | 8081 | Chi router implementation |
+| **[dorico-dynamics-gin](dorico-dynamics-gin/)** | Gin | 8082 | Gin framework implementation |
+| **[dorico-dynamics-mux](dorico-dynamics-mux/)** | Gorilla/Mux | 8083 | Mux router implementation |
 
 ### Features Demonstrated
 
@@ -57,14 +57,14 @@ All examples include:
 
 ```bash
 # Navigate to an example
-cd examples/infranotes
+cd examples/dorico-dynamics
 
 # Run directly
 go run main.go
 
 # Or build and run
-go build -o infranotes
-./infranotes
+go build -o dorico-dynamics
+./dorico-dynamics
 ```
 
 ### Access Points
@@ -266,7 +266,7 @@ go run ./cmd/openapi > docs/openapi.yaml
 Each example follows this structure:
 
 ```
-infranotes/
+dorico-dynamics/
 ├── main.go           # Main application file
 ├── go.mod            # Go module definition
 └── go.sum            # Dependency checksums
@@ -285,7 +285,7 @@ infranotes/
 
 ```bash
 # Each example's go.mod already replaces infra-apix with this checkout
-cd examples/infranotes
+cd examples/dorico-dynamics
 go run main.go
 ```
 
