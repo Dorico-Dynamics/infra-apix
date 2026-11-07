@@ -257,6 +257,7 @@ Modify:
 The examples serve the spec at runtime. To write a static file, use a small program that registers your routes (see [Programmatic Generation](../docs/OPENAPI_GENERATION.md#programmatic-generation)):
 
 ```bash
+mkdir -p docs
 go run ./cmd/openapi > docs/openapi.yaml
 ```
 

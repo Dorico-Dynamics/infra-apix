@@ -413,6 +413,7 @@ handler, err := runtime.NewHandler(runtime.Config{
 Write the document to a file with a small program that registers your routes and prints the document (see [Programmatic Generation](OPENAPI_GENERATION.md#programmatic-generation)), then run it:
 
 ```bash
+mkdir -p docs
 go run ./cmd/openapi > docs/openapi.yaml
 ```
 
@@ -443,6 +444,7 @@ jobs:
       
       - name: Check OpenAPI spec drift
         run: |
+          git ls-files --error-unmatch docs/openapi.yaml # git diff skips an untracked file
           go run ./cmd/openapi > docs/openapi.yaml
           git diff --exit-code docs/openapi.yaml
 ```

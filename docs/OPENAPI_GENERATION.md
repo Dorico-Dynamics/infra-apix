@@ -81,6 +81,7 @@ A program that registers your routes, as your server does, can build the documen
 package main
 
 import (
+    "context"
     "log"
     "os"
 
@@ -114,13 +115,21 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
+    // Build does not check the OpenAPI rules: check the document as written
+    written, err := openapi3.NewLoader().LoadFromData(data)
+    if err != nil {
+        log.Fatal(err)
+    }
+    if err := written.Validate(context.Background()); err != nil {
+        log.Fatal(err)
+    }
     if _, err := os.Stdout.Write(append([]byte(header), data...)); err != nil {
         log.Fatal(err)
     }
 }
 ```
 
-Run it with `go run ./cmd/openapi > docs/openapi.yaml`. The output is the same on every run for the same routes, so a CI job can regenerate the file and fail on a diff (see [Use CI Drift Detection](#6-use-ci-drift-detection)). Set `builder.SecuritySchemes` to the schemes your routes name with `apix.WithSecurity`: `Build` fails for a scheme nothing declares. Pass `"json"` to `EncodeDocument` for JSON, which has no comments, so leave out the header.
+Run it with `mkdir -p docs && go run ./cmd/openapi > docs/openapi.yaml`. It exits with an error, and prints nothing, when the document breaks an OpenAPI rule, such as a path parameter that no `WithParameter` declares. The output is the same on every run for the same routes, so a CI job can regenerate the file and fail on a diff (see [Use CI Drift Detection](#6-use-ci-drift-detection)). Set `builder.SecuritySchemes` to the schemes your routes name with `apix.WithSecurity`: `Build` fails for a scheme nothing declares. Pass `"json"` to `EncodeDocument` for JSON, which has no comments, so leave out the header.
 
 ## Struct Tags
 
@@ -683,6 +692,7 @@ Regenerate the committed document with the program from [Programmatic Generation
 # .github/workflows/ci.yml
 - name: Check OpenAPI spec drift
   run: |
+    git ls-files --error-unmatch docs/openapi.yaml # git diff skips an untracked file
     go run ./cmd/openapi > docs/openapi.yaml
     git diff --exit-code docs/openapi.yaml
 ```

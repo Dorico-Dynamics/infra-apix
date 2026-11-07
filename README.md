@@ -253,6 +253,7 @@ func main() {
 Write the spec with a small program that registers your routes and prints the document (see [Programmatic Generation](docs/OPENAPI_GENERATION.md#programmatic-generation)):
 
 ```bash
+mkdir -p docs
 go run ./cmd/openapi > docs/openapi.yaml
 ```
 
@@ -429,6 +430,7 @@ jobs:
 
       - name: Check OpenAPI spec drift
         run: |
+          git ls-files --error-unmatch docs/openapi.yaml # git diff skips an untracked file
           go run ./cmd/openapi > docs/openapi.yaml
           if ! git diff --exit-code docs/openapi.yaml; then
             echo "❌ OpenAPI spec has drifted from code!"
@@ -438,12 +440,19 @@ jobs:
 
 ### 3. Pre-commit Hook
 
-Run the same check before each commit, with an executable `.git/hooks/pre-commit` in your application:
+Run the same check before each commit, with an executable `.git/hooks/pre-commit` in your application. It builds the spec from the staged files, so a route change you have not staged cannot make the staged spec pass:
 
 ```bash
 #!/bin/sh
-go run ./cmd/openapi > docs/openapi.yaml || exit 1
-git diff --exit-code docs/openapi.yaml
+# Generate the spec from the staged files, so unstaged changes do not count
+tree=$(mktemp -d) || exit 1
+trap 'rm -rf "$tree"' EXIT
+git checkout-index --all --prefix="$tree/" || exit 1
+(cd "$tree" && go run ./cmd/openapi > docs/openapi.yaml) || exit 1
+if ! git show :docs/openapi.yaml | cmp -s - "$tree/docs/openapi.yaml"; then
+    echo "docs/openapi.yaml does not match the staged code: regenerate and stage it" >&2
+    exit 1
+fi
 ```
 
 To bypass (not recommended):
@@ -466,18 +475,17 @@ This requires approval from designated reviewers for any spec changes.
 ### Complete Guardrails Setup
 
 ```bash
-# 1. Generate initial spec
-make generate-spec
+# 1. Generate the initial spec with ./cmd/openapi
+mkdir -p docs
+go run ./cmd/openapi > docs/openapi.yaml
 
-# 2. Install pre-commit hook
-make install-hooks
+# 2. Save the hook from step 3 as .git/hooks/pre-commit, and make it executable
+chmod +x .git/hooks/pre-commit
 
-# 3. Configure CODEOWNERS (see .github/CODEOWNERS)
+# 3. Add the CI job from step 2 and the CODEOWNERS entries from step 4
 
-# 4. Add CI check (see .github/workflows/test.yml)
-
-# 5. Commit everything
-git add docs/openapi.yaml .github/CODEOWNERS
+# 4. Commit everything
+git add cmd/openapi docs/openapi.yaml .github/workflows/ci.yml .github/CODEOWNERS
 git commit -m "feat: add OpenAPI spec with guardrails"
 ```
 
