@@ -353,7 +353,7 @@ func UploadFile(c echo.Context) error {
 
 ```go
 type UploadFileRequest struct {
-    File []byte `json:"file" format:"binary" description:"File to upload"`
+    File []byte `json:"file" format:"binary" validate:"required" description:"File to upload"`
 }
 
 type UploadFileResponse struct {
@@ -396,7 +396,7 @@ echoadapter.Post(uploads, "/upload", UploadFile,
 )
 ```
 
-`io.ReadAll` holds the file in memory, so cap the request body with Echo's `middleware.BodyLimit`.
+`validate:"required"` makes the schema list `file` as required, as `decodeUpload` requires it; without a tag, a slice is optional. `io.ReadAll` holds the file in memory, so cap the request body with Echo's `middleware.BodyLimit`.
 
 ### Example 4: Query Parameters
 
