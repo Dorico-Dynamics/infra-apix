@@ -101,6 +101,9 @@ func (b *Builder) Build(routes []*apix.RouteRef) (*openapi3.T, error) {
 	if err := checkSecuritySchemes(doc); err != nil {
 		return nil, err
 	}
+	if err := checkOperationIDs(doc); err != nil {
+		return nil, err
+	}
 
 	// Log spec build completion
 	routeCount := len(routes)
@@ -785,6 +788,38 @@ func checkSecuritySchemes(doc *openapi3.T) error {
 			more = fmt.Sprintf(" (and %d more)", n)
 		}
 		errs = append(errs, fmt.Errorf("security scheme %q is not declared in components.securitySchemes, but %s uses it%s", name, first[name], more))
+	}
+	return errors.Join(errs...)
+}
+
+// checkOperationIDs fails for every operationId that more than one operation
+// of doc uses. OpenAPI requires operationIds to be unique, client generators
+// name methods after them, and kin-openapi's Validate rejects a duplicate. A
+// path parameter and a literal segment of the same name share a default ID, as
+// /users/{id} and /users/id do. Each error names the first two users in path
+// order and counts the others.
+func checkOperationIDs(doc *openapi3.T) error {
+	users := map[string][]string{}
+	for _, path := range doc.Paths.InMatchingOrder() {
+		ops := doc.Paths.Value(path).Operations()
+		for _, method := range slices.Sorted(maps.Keys(ops)) {
+			if id := ops[method].OperationID; id != "" {
+				users[id] = append(users[id], method+" "+path)
+			}
+		}
+	}
+
+	var errs []error
+	for _, id := range slices.Sorted(maps.Keys(users)) {
+		routes := users[id]
+		if len(routes) < 2 {
+			continue
+		}
+		more := ""
+		if n := len(routes) - 2; n > 0 {
+			more = fmt.Sprintf(" (and %d more)", n)
+		}
+		errs = append(errs, fmt.Errorf("operationId %q is used by both %s and %s%s; give one of them its own with apix.WithOperationID", id, routes[0], routes[1], more))
 	}
 	return errors.Join(errs...)
 }
