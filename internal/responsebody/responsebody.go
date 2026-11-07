@@ -51,9 +51,10 @@ func (w *Writer) Committed() bool {
 }
 
 // WriteHeader records a final status. A 1xx status is informational and
-// leaves the response open.
+// leaves the response open, except 101 Switching Protocols, after which
+// net/http sends no other status either.
 func (w *Writer) WriteHeader(status int) {
-	if status >= http.StatusOK {
+	if status >= http.StatusOK || status == http.StatusSwitchingProtocols {
 		w.committed = true
 	}
 	w.ResponseWriter.WriteHeader(status)

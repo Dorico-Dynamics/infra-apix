@@ -97,6 +97,7 @@ func TestWriterCommitted(t *testing.T) {
 		{name: "untouched", use: func(w *Writer) {}, want: false},
 		{name: "headers only", use: func(w *Writer) { w.Header().Set("X-Test", "1") }, want: false},
 		{name: "informational status", use: func(w *Writer) { w.WriteHeader(http.StatusEarlyHints) }, want: false},
+		{name: "switching protocols", use: func(w *Writer) { w.WriteHeader(http.StatusSwitchingProtocols) }, want: true},
 		{name: "final status", use: func(w *Writer) { w.WriteHeader(http.StatusCreated) }, want: true},
 		{name: "body", use: func(w *Writer) { _, _ = w.Write([]byte("x")) }, want: true},
 		{name: "empty body write", use: func(w *Writer) { _, _ = w.Write(nil) }, want: true},
