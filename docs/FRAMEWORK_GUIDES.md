@@ -101,11 +101,19 @@ echoadapter.Get(adapter, "/api/users/:id", getUser,
 ### Custom Options
 
 ```go
-import echoadapter "github.com/Infra-Forge/infra-apix/echo"
+import (
+    "context"
+    "errors"
+
+    apix "github.com/Infra-Forge/infra-apix"
+    echoadapter "github.com/Infra-Forge/infra-apix/echo"
+    "github.com/labstack/echo/v4"
+)
 
 adapter := echoadapter.New(e, echoadapter.Options{
     Decoder: func(ctx context.Context, c echo.Context, dst any) error {
-        // Custom request decoding
+        // Custom request decoding. The default decoder also rejects unknown
+        // fields and trailing content, and runs e.Validator.
         return c.Bind(dst)
     },
     ResponseEncoder: func(ctx context.Context, c echo.Context, status int, payload any, ref *apix.RouteRef) error {
@@ -113,8 +121,14 @@ adapter := echoadapter.New(e, echoadapter.Options{
         return c.JSON(status, payload)
     },
     ErrorHandler: func(err error) error {
-        // Transform errors to Echo errors
-        return echo.NewHTTPError(500, err.Error())
+        // Keep the status and message of apix errors such as apix.NotFound.
+        var coded apix.StatusCoder
+        if errors.As(err, &coded) {
+            return echo.NewHTTPError(coded.HTTPStatus(), coded.Error())
+        }
+        // Echo's error handler answers any other error with a 500 that
+        // leaves the error's message out.
+        return err
     },
 })
 ```
@@ -192,16 +206,20 @@ chiadapter.Get(adapter, "/api/users/{id}", getUser,
 
 ### Custom Validation
 
+`chiadapter.Validator` has one method, `Validate(any) error`. go-playground/validator checks structs with `Struct`, so wrap it:
+
 ```go
 import (
     chiadapter "github.com/Infra-Forge/infra-apix/chi"
     "github.com/go-playground/validator/v10"
 )
 
-validate := validator.New()
+type structValidator struct{ v *validator.Validate }
+
+func (s structValidator) Validate(dst any) error { return s.v.Struct(dst) }
 
 adapter := chiadapter.New(r, chiadapter.Options{
-    Validator: validate,
+    Validator: structValidator{v: validator.New()},
 })
 ```
 
