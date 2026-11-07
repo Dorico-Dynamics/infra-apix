@@ -10,7 +10,7 @@ Detailed guides for integrating `apix` with each supported framework.
 - [Gorilla/Mux](#gorillamux)
 - [Gin](#gin)
 - [Fiber](#fiber)
-- [Reading Path Parameters](#reading-path-parameters)
+- [Reading Path and Query Parameters](#reading-path-and-query-parameters)
 - [Comparison](#framework-comparison)
 
 ---
@@ -458,32 +458,36 @@ fiberadapter.Get(adapter, "/api/users/:id", getUser,
 
 ---
 
-## Reading Path Parameters
+## Reading Path and Query Parameters
 
-A typed handler receives the request's `context.Context` and its decoded body, not the router's context. Declare a path parameter with `apix.WithParameter` so the document lists it, and read it from the context.
-
-**Chi** keeps path parameters in the request context:
-
-```go
-func getUser(ctx context.Context, _ *apix.NoBody) (UserResponse, error) {
-    id := chi.URLParamFromCtx(ctx, "id")
-    // Load the user with this id
-    return UserResponse{ID: id}, nil
-}
-```
-
-**Echo, Gin and Gorilla/Mux** keep them on their own types, so copy them into the request context in middleware, and read them with a helper:
+A typed handler receives the request's `context.Context` and its decoded body, not the router's context. Declare path and query parameters with `apix.WithParameter` so the document lists them, copy them into the request context in middleware, and read them with helpers:
 
 ```go
 type pathParamsKey struct{}
+type queryKey struct{}
 
 func pathParam(ctx context.Context, name string) string {
     params, _ := ctx.Value(pathParamsKey{}).(map[string]string)
     return params[name]
 }
+
+func queryParam(ctx context.Context, name string) string {
+    query, _ := ctx.Value(queryKey{}).(url.Values)
+    return query.Get(name)
+}
+
+// GET /api/users/user-123?include=email
+func getUser(ctx context.Context, _ *apix.NoBody) (UserResponse, error) {
+    // Load the user with this id
+    user := UserResponse{ID: pathParam(ctx, "id"), Name: "John Doe"}
+    if queryParam(ctx, "include") == "email" {
+        user.Email = "john@example.com"
+    }
+    return user, nil
+}
 ```
 
-Echo runs `e.Use` middleware after routing, so the parameters are set:
+**Echo** runs `e.Use` middleware after routing, so the path parameters are set:
 
 ```go
 e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -493,13 +497,14 @@ e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
             params[name] = c.ParamValues()[i]
         }
         ctx := context.WithValue(c.Request().Context(), pathParamsKey{}, params)
+        ctx = context.WithValue(ctx, queryKey{}, c.QueryParams())
         c.SetRequest(c.Request().WithContext(ctx))
         return next(c)
     }
 })
 ```
 
-Gin applies middleware to the routes registered after it, so call `r.Use` first:
+**Gin** applies middleware to the routes registered after it, so call `r.Use` first:
 
 ```go
 r.Use(func(c *gin.Context) {
@@ -507,28 +512,47 @@ r.Use(func(c *gin.Context) {
     for _, p := range c.Params {
         params[p.Key] = p.Value
     }
-    c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), pathParamsKey{}, params))
+    ctx := context.WithValue(c.Request.Context(), pathParamsKey{}, params)
+    ctx = context.WithValue(ctx, queryKey{}, c.Request.URL.Query())
+    c.Request = c.Request.WithContext(ctx)
     c.Next()
 })
 ```
 
-Gorilla/Mux:
+**Gorilla/Mux**:
 
 ```go
 r.Use(func(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
         ctx := context.WithValue(req.Context(), pathParamsKey{}, mux.Vars(req))
+        ctx = context.WithValue(ctx, queryKey{}, req.URL.Query())
         next.ServeHTTP(w, req.WithContext(ctx))
     })
 })
 ```
 
-**Fiber** runs `app.Use` middleware before it matches the route, so the parameters are empty there. Register a handler on the same path before the apix route; it copies them and passes the request on:
+**Chi** keeps path parameters in the request context, so a handler reads them with `chi.URLParamFromCtx(ctx, "id")` instead of `pathParam`. Copy only the query, in middleware registered before the routes:
+
+```go
+r.Use(func(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+        ctx := context.WithValue(req.Context(), queryKey{}, req.URL.Query())
+        next.ServeHTTP(w, req.WithContext(ctx))
+    })
+})
+```
+
+**Fiber** runs `app.Use` middleware before it matches the route, so the path parameters are empty there. Register a handler on the same path before the apix route; it copies them and passes the request on:
 
 ```go
 app.Get("/api/users/:id", func(c fiber.Ctx) error {
-    params := map[string]string{"id": c.Params("id")}
-    c.SetContext(context.WithValue(c.Context(), pathParamsKey{}, params))
+    query := url.Values{}
+    for name, value := range c.Queries() {
+        query.Set(name, value)
+    }
+    ctx := context.WithValue(c.Context(), pathParamsKey{}, map[string]string{"id": c.Params("id")})
+    ctx = context.WithValue(ctx, queryKey{}, query)
+    c.SetContext(ctx)
     return c.Next()
 })
 fiberadapter.Get(adapter, "/api/users/:id", getUser)
@@ -595,5 +619,5 @@ chiadapter.Post(chiAdapter, "/api/users", createUser, opts...)
 ginadapter.Post(ginAdapter, "/api/users", createUser, opts...)
 ```
 
-Path parameter syntax changes between routers, and so does the way a handler reads path parameters (see [Reading Path Parameters](#reading-path-parameters)).
+Path parameter syntax changes between routers, and so does the way path and query parameters reach a handler (see [Reading Path and Query Parameters](#reading-path-and-query-parameters)).
 

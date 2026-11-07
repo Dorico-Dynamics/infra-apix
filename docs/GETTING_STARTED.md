@@ -239,7 +239,7 @@ func listUsers(ctx context.Context, _ *apix.NoBody) (UserListResponse, error) {
 }
 
 func getUser(ctx context.Context, _ *apix.NoBody) (UserResponse, error) {
-    // In a real app, read the id (see "Reading Path Parameters" in
+    // In a real app, read the id (see "Reading Path and Query Parameters" in
     // FRAMEWORK_GUIDES.md) and fetch the user from the database
     return UserResponse{
         ID:        "user-1",
