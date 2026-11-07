@@ -113,6 +113,18 @@ func LogReplaced(ctx context.Context, req Request, err error, attrs ...slog.Attr
 	logging.ErrorLogger().LogAttrs(ctx, slog.LevelError, "error answered with a generic 500", attrs...)
 }
 
+// LogCommittedFailure logs, at Error level and with the request's context, an
+// error that came after the response had started, so the client got the
+// status and maybe part of the body, and no error response. It covers a custom
+// response encoder that wrote before it failed, and an error Echo hands to
+// ProblemDetailsErrorHandler for a committed response. apix cannot tell a
+// failed write from a failed encoding there, so the line always prints: it
+// goes to the logger passed to apix.SetLogger, or else to slog.Default().
+func LogCommittedFailure(ctx context.Context, req Request, err error) {
+	attrs := append(req.Attrs(), slog.Any("error", err))
+	logging.ErrorLogger().LogAttrs(ctx, slog.LevelError, "response failed after it was committed", attrs...)
+}
+
 // LogWriteFailed logs a response the client did not receive in full, which
 // usually means it went away. Like apix's other library events, it goes only
 // to a logger passed to apix.SetLogger, at Warn level.
