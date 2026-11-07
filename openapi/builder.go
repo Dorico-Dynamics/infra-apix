@@ -394,19 +394,14 @@ func (b *Builder) schemaRefNonNull(t reflect.Type) (*openapi3.SchemaRef, error) 
 	switch t.Kind() {
 	case reflect.Bool:
 		return schemaRef(openapi3.NewBoolSchema()), nil
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32:
+	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Uint8, reflect.Uint16:
 		s := openapi3.NewIntegerSchema()
 		s.Format = "int32"
 		return schemaRef(s), nil
-	case reflect.Int64:
-		s := openapi3.NewIntegerSchema()
-		s.Format = "int64"
-		return schemaRef(s), nil
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32:
-		s := openapi3.NewIntegerSchema()
-		s.Format = "int32"
-		return schemaRef(s), nil
-	case reflect.Uint64:
+	case reflect.Int, reflect.Int64, reflect.Uint, reflect.Uint32, reflect.Uint64:
+		// int and uint are 64-bit on amd64 and arm64, and uint32 exceeds int32,
+		// so they are int64 on every platform, which keeps the document the
+		// same wherever it is built.
 		s := openapi3.NewIntegerSchema()
 		s.Format = "int64"
 		return schemaRef(s), nil
