@@ -1,6 +1,11 @@
-"""
-Product Requirements Document: Go API Documentation Automation Library
-"""
+# Product Requirements Document: Go API Documentation Automation Library
+
+> **Status, 2026-11-07.** This is the original product requirements
+> document for apix v1. Its goals still describe the project. For what v1
+> delivers and what remains, see the README's
+> [Status and roadmap](README.md#status-and-roadmap). The remaining work is
+> tracked as GitHub issues, listed in the
+> [roadmap](https://github.com/Dorico-Dynamics/infra-apix/issues/52).
 
 ### Problem Statement
 
