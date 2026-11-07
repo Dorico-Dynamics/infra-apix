@@ -72,7 +72,10 @@ Both engines share the domain code (an HTTP-free store) and the platform
 error type. "Glue" is the code each engine needed beyond itself. Each row
 runs on a fresh engine. Every response is checked against the engine's own
 document with kin-openapi's `openapi3filter`, so a row fails when the runtime
-is wrong or when the document disagrees with the runtime.
+is wrong or when a response disagrees with the document. Many requests are
+invalid on purpose, so request validation is not scored. Instead, rows read
+the request side of the document directly: bounds, formats, enums, defaults
+and required headers.
 
 The error codes and their statuses are:
 
@@ -109,7 +112,7 @@ v2.40.0, kin-openapi v0.149.0 and chi v5.5.0.
 
 ## Results
 
-### Conformance: apix v1 27 of 37, huma v2 35 of 37
+### Conformance: apix v1 28 of 38, huma v2 36 of 38
 
 | Row | Checks | apix v1 | huma v2 |
 |---|---|---|---|
@@ -150,6 +153,7 @@ v2.40.0, kin-openapi v0.149.0 and chi v5.5.0.
 | X1 | Malformed JSON → 400 | pass | pass |
 | X2 | A JSON route refuses another Content-Type → 415 | **fail:** 201, body decoded | pass |
 | X3 | Unknown JSON field → 400 | pass | pass |
+| X4 | String shorter or longer than its bounds → 400 naming it as `too_short` or `too_long` | pass | pass |
 
 **apix v1 failures.**
 - Six rows (R1d, R1e, R2b, R3d, R5b and R6a) behave correctly at runtime
@@ -297,8 +301,12 @@ locator calls and manual reads. Context values set by middleware stay as they
 are: A1 shows a typed handler reading them under both engines. Option B also
 translates the `validate` tags into huma's tags (`minimum`, `maxLength`,
 `enum`, `format` and so on), because huma reads no `validate` tag. That is
-583 tags, 263 with constraints, and the translation is mechanical. Option B
-also moves request and response bodies into a `Body` field.
+583 tags, 263 with constraints, and the translation is mechanical, with one
+exception. go-playground's `required` also rejects zero values, while JSON
+Schema's `required` asks only that the field be present. Sent an empty
+title, v1 names the field `required` and huma `too_short`. The migration must
+either map that code back or announce the change. Option B also moves request
+and response bodies into a `Body` field.
 
 ### huma as a dependency
 
@@ -318,15 +326,15 @@ fraction; the rest are judgements on the evidence above.
 
 | Criterion | Weight | A: native (v1 today) | B: huma v2 | Basis |
 |---|---|---|---|---|
-| Conformance coverage | 30% | 3.71 | 4.68 | 23 vs 29 of the 31 route rows (R1a–R6e and X1–X3, without R4b) |
-| Error-contract fidelity | 15% | 5 | 5 | Every error either engine produced matched the contract: members, status, code, IDs, field names and codes |
+| Conformance coverage | 30% | 3.75 | 4.69 | 24 vs 30 of the 32 route rows (R1a–R6e and X1–X4, without R4b) |
+| Error-contract fidelity | 15% | 5 | 5 | Every error body either engine produced has the contract's shape: its members, a type, title and status consistent with its code, the IDs, and field names and codes. Which error a case gets is scored under conformance, where huma's wrong 400 (R3c) and missing errors (R6e for huma, X2 for apix) already count |
 | Adapter coverage, stdlib included | 15% | 4.17 | 5 | 5 vs 6 of chi, echo v4, gin, gorilla/mux, fiber v3 and ServeMux |
 | Incremental adoption | 10% | 5 | 5 | A1 |
 | Spec quality | 10% | 3.75 | 5 | 3 vs 4 of S1–S4 |
 | Code we own | 10% | 2 | 4 | A owns the engine: 4,017 non-test lines today[^lines], plus every gap above. B owns about 170 lines of glue, coupled to huma's error constructors and message formats |
 | Footprint | 5% | 4 | 5 | B links 2 modules against 9 (chi) and 12 against 17 (echo), in smaller binaries |
 | Migration cost | 5% | 4 | 3 | Both change all 417 routes; B also translates 583 tags |
-| **Weighted total** | | **3.96** | **4.70** | |
+| **Weighted total** | | **3.975** | **4.706** | |
 
 [^lines]: `git ls-files '*.go' ':!*_test.go' ':!examples/**' ':!docs/**' ':!runtime/**' ':!cmd/**' ':!internal/swaggerui/**' ':!openapi/internal/collision/**' | xargs cat | wc -l`
     at `2c05554`. For comparison, huma v2.40.0's root package alone has
@@ -334,7 +342,7 @@ fraction; the rest are judgements on the evidence above.
 
 Suppose the rewrite took A to full marks on conformance, adapters and spec
 quality. Against B with the operation-level media-type check, A would still
-total 4.60 to B's 4.80. The gap is the code A must own.
+total 4.600 to B's 4.800. The gap is the code A must own.
 
 ## Decision (proposed)
 
@@ -389,7 +397,7 @@ Adoption comes with these conditions:
 |---|---|
 | Upstream stalls or diverges | Pinned version; the conformance suite on every bump; the platform layer keeps huma behind apix where practical; v1 stays until consumers migrate; MIT allows a fork as a last resort |
 | A service bypasses apix v2 and gets huma's defaults, which leak 500 messages and echo input | Services get their API from apix v2; a CI check rejects `huma.DefaultConfig` in services |
-| A huma bump changes validation messages and so, silently, field codes | Conformance rows pin every field code |
+| A huma bump changes validation messages and so, silently, field codes | Conformance rows pin all five field codes (X4 covers `too_short` and `too_long`) |
 | JSON is accepted where the operation documents another media type | The operation-level check (condition 2), covered by R3c and R6e |
 
 If Option A is chosen instead, apix owns the engine and builds typed binding,
